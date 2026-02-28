@@ -7,6 +7,7 @@ struct ChatView: View {
     @Environment(LLMManager.self) private var llm
     @Environment(AudioManager.self) private var audio
     @Environment(ConversationManager.self) private var conversationManager
+    @Environment(\.dismiss) private var dismiss
 
     @State private var isHolding = false
     @State private var modelLoaded = false
@@ -41,6 +42,14 @@ struct ChatView: View {
                 modelLoaded = true
             } else if llm.state == .ready {
                 modelLoaded = true
+            }
+
+            // Restore conversation context
+            if modelLoaded {
+                let history = conversationManager.currentMessages.map {
+                    (role: $0.role, content: $0.content)
+                }
+                llm.startSession(withHistory: history)
             }
 
             // Set up hands-free callback
@@ -110,6 +119,17 @@ struct ChatView: View {
                 llm.resetConversation()
             } label: {
                 Image(systemName: "arrow.counterclockwise.circle")
+                    .font(.title2)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            // End conversation
+            Button {
+                audio.cleanup()
+                conversationManager.activeConversation = nil
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle")
                     .font(.title2)
                     .foregroundColor(.white.opacity(0.6))
             }

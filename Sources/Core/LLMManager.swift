@@ -4,7 +4,7 @@ import MLXLLM
 import MLXLMCommon
 import MLX
 
-/// Manages the MLX LLM model lifecycle with personality support.
+/// Manages the MLX LLM model lifecycle with personality, language, and context support.
 @Observable
 @MainActor
 final class LLMManager {
@@ -27,7 +27,6 @@ final class LLMManager {
     var activePersonality: Personality = Personality.find("friend") {
         didSet {
             UserDefaults.standard.set(activePersonality.id, forKey: "activePersonalityID")
-            // Reset session with new personality prompt
             if modelContainer != nil {
                 resetConversation()
             }
@@ -73,9 +72,7 @@ final class LLMManager {
             }
             modelContainer = container
             loadedModelName = modelID.components(separatedBy: "/").last ?? modelID
-
             chatSession = ChatSession(container, instructions: buildSystemPrompt())
-
             state = .ready
         } catch {
             state = .error(message: error.localizedDescription)
@@ -112,16 +109,46 @@ final class LLMManager {
         }
     }
 
-    /// Build system prompt combining personality + language
+    // MARK: - System Prompt
+
     private func buildSystemPrompt() -> String {
-        return activePersonality.systemPrompt + " " + activeLanguage.llmInstruction
+        """
+        \(activePersonality.systemPrompt)
+
+        IMPORTANT RULES:
+        - \(activeLanguage.llmInstruction)
+        - ALWAYS stay in character as \(activePersonality.name).
+        - Remember the ENTIRE conversation history and refer back to it when relevant.
+        - Keep responses concise (1-4 sentences) unless the user asks for more detail.
+        """
     }
+
+    // MARK: - Conversation Management
 
     /// Reset conversation with current personality + language
     func resetConversation() {
         guard let container = modelContainer else { return }
         chatSession = ChatSession(container, instructions: buildSystemPrompt())
         currentResponse = ""
+    }
+
+    /// Start a new session, optionally pre-loading previous messages for context
+    func startSession(withHistory messages: [(role: String, content: String)] = []) {
+        guard let container = modelContainer else { return }
+        chatSession = ChatSession(container, instructions: buildSystemPrompt())
+        currentResponse = ""
+
+        // Pre-feed conversation history so the LLM has context
+        if !messages.isEmpty {
+            Task {
+                for msg in messages.suffix(10) { // Last 10 messages for context
+                    if msg.role == "user" {
+                        // Feed the user message and get a response (which we discard)
+                        let _ = try? await chatSession?.respond(to: msg.content)
+                    }
+                }
+            }
+        }
     }
 
     /// Switch personality and reset the session
