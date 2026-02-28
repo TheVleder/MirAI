@@ -102,8 +102,8 @@ final class LLMManager {
 
     // MARK: - Streaming Generation
 
-    /// Generate with streaming — calls `onSentence` each time a full sentence is ready.
-    /// This allows TTS to start speaking the first sentence immediately.
+    /// Generate and split into sentences for TTS queuing.
+    /// Uses standard respond(to:) then feeds sentences one-by-one to TTS.
     func generateStreaming(prompt: String, onSentence: @escaping (String) -> Void) async -> String {
         guard let session = chatSession else {
             state = .error(message: "Model not loaded")
@@ -113,39 +113,28 @@ final class LLMManager {
         state = .generating
         currentResponse = ""
 
-        var buffer = ""
-        let sentenceEnders: CharacterSet = CharacterSet(charactersIn: ".!?\n")
-
         do {
-            let response = try await session.respond(to: prompt) { partial in
-                Task { @MainActor [weak self] in
-                    self?.currentResponse += partial
-                }
-
-                buffer += partial
-
-                // Check for sentence boundary
-                while let range = buffer.rangeOfCharacter(from: sentenceEnders) {
-                    let idx = buffer.index(after: range.lowerBound)
-                    let sentence = String(buffer[..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    buffer = String(buffer[idx...])
-
-                    if !sentence.isEmpty {
-                        onSentence(sentence)
-                    }
-                }
-
-                return .more
-            }
-
-            // Speak any remaining buffered text
-            let remaining = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !remaining.isEmpty {
-                onSentence(remaining)
-            }
-
+            let response = try await session.respond(to: prompt)
             currentResponse = response
             state = .ready
+
+            // Split into sentences and feed to TTS one-by-one
+            let sentenceEnders = CharacterSet(charactersIn: ".!?\n")
+            var remaining = response
+            while let range = remaining.rangeOfCharacter(from: sentenceEnders) {
+                let idx = remaining.index(after: range.lowerBound)
+                let sentence = String(remaining[..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
+                remaining = String(remaining[idx...])
+                if !sentence.isEmpty {
+                    onSentence(sentence)
+                }
+            }
+            // Speak any leftover text
+            let leftover = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !leftover.isEmpty {
+                onSentence(leftover)
+            }
+
             return response
         } catch {
             return handleError(error)
