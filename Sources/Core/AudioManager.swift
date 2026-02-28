@@ -67,8 +67,8 @@ final class AudioManager: NSObject {
     // Barge-in monitoring
     private var isMonitoringForBargeIn = false
     private var bargeInSpeechFrames: Int = 0
-    private let bargeInFramesNeeded: Int = 4 // ~0.2s sustained speech
-    private let bargeInThreshold: Float = -42.0 // More sensitive than VAD
+    private let bargeInFramesNeeded: Int = 12 // ~0.6s sustained speech to avoid speaker bleed
+    private let bargeInThreshold: Float = -30.0 // Raised from -42 to ignore speaker output
 
     // Sentence queue for streaming TTS
     private var sentenceQueue: [String] = []
@@ -100,11 +100,10 @@ final class AudioManager: NSObject {
                     self.isSpeakingFromQueue = false
                     self.stopMonitorTap()
                     self.state = .idle
-                    if self.listeningMode == .handsFree {
-                        try? await Task.sleep(nanoseconds: 200_000_000)
-                        if self.state == .idle {
-                            self.startListening()
-                        }
+                    // Always auto-listen after speaking — natural conversation flow
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if self.state == .idle {
+                        self.startListening()
                     }
                 }
             }
@@ -421,14 +420,8 @@ final class AudioManager: NSObject {
 
         state = .speaking
         speakUtterance(text)
-
-        // Start mic monitoring for auto barge-in
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            if self.state == .speaking {
-                self.startMonitorTap()
-            }
-        }
+        // No mic monitoring during TTS — speaker bleeds into mic.
+        // User can tap to interrupt. Hands-free auto-resumes after TTS finishes.
     }
 
     /// Queue a sentence for streaming TTS (speaks immediately if nothing playing)
@@ -451,14 +444,7 @@ final class AudioManager: NSObject {
             state = .speaking
             isSpeakingFromQueue = true
             speakUtterance(sentence)
-
-            // Start mic monitoring for barge-in
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                if self.state == .speaking {
-                    self.startMonitorTap()
-                }
-            }
+            // No mic monitoring during TTS — speaker bleeds into mic
         } else {
             // Already speaking — queue for later
             sentenceQueue.append(sentence)
