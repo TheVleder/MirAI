@@ -67,8 +67,8 @@ final class AudioManager: NSObject {
     // Barge-in monitoring
     private var isMonitoringForBargeIn = false
     private var bargeInSpeechFrames: Int = 0
-    private let bargeInFramesNeeded: Int = 12 // ~0.6s sustained speech to avoid speaker bleed
-    private let bargeInThreshold: Float = -30.0 // Raised from -42 to ignore speaker output
+    private let bargeInFramesNeeded: Int = 8 // ~0.4s sustained speech
+    private let bargeInThreshold: Float = -35.0 // With AEC, only real speech passes
 
     // Sentence queue for streaming TTS
     private var sentenceQueue: [String] = []
@@ -180,13 +180,25 @@ final class AudioManager: NSObject {
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
 
-    /// Configure for TTS + barge-in monitoring (default mode — NO echo cancellation)
-    private func configureForTTSMonitor() throws {
+    /// Configure for TTS playback (default mode — good audio quality)
+    private func configureForTTSPlayback() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(
             .playAndRecord,
             mode: .default,
             options: [.defaultToSpeaker, .mixWithOthers, .duckOthers, .allowBluetooth]
+        )
+        try session.setActive(true, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Configure for barge-in monitoring (.voiceChat = hardware echo cancellation)
+    /// AEC filters out speaker output from mic — only real user speech passes through
+    private func configureForBargeInMonitor() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(
+            .playAndRecord,
+            mode: .voiceChat,
+            options: [.defaultToSpeaker, .allowBluetooth]
         )
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
@@ -226,14 +238,13 @@ final class AudioManager: NSObject {
         }
     }
 
-    /// Start a lightweight mic tap to detect voice during TTS.
-    /// Uses .default mode (not .voiceChat) so echo cancellation doesn't suppress the mic.
+    /// Start a lightweight mic tap to detect user voice during TTS.
+    /// Uses .voiceChat mode for hardware echo cancellation — filters out speaker output.
     private func startMonitorTap() {
-        guard listeningMode == .handsFree else { return }
         stopMonitorTap()
 
         do {
-            try configureForTTSMonitor()
+            try configureForBargeInMonitor()
         } catch { return }
 
         bargeInSpeechFrames = 0
@@ -420,8 +431,14 @@ final class AudioManager: NSObject {
 
         state = .speaking
         speakUtterance(text)
-        // No mic monitoring during TTS — speaker bleeds into mic.
-        // User can tap to interrupt. Hands-free auto-resumes after TTS finishes.
+
+        // Start barge-in monitor with echo cancellation after brief delay
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            if self.state == .speaking {
+                self.startMonitorTap()
+            }
+        }
     }
 
     /// Queue a sentence for streaming TTS (speaks immediately if nothing playing)
@@ -444,7 +461,14 @@ final class AudioManager: NSObject {
             state = .speaking
             isSpeakingFromQueue = true
             speakUtterance(sentence)
-            // No mic monitoring during TTS — speaker bleeds into mic
+
+            // Start barge-in monitor with echo cancellation after brief delay
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                if self.state == .speaking {
+                    self.startMonitorTap()
+                }
+            }
         } else {
             // Already speaking — queue for later
             sentenceQueue.append(sentence)
@@ -460,8 +484,8 @@ final class AudioManager: NSObject {
 
     /// Internal: create and speak an utterance
     private func speakUtterance(_ text: String) {
-        // Try to configure audio session, but still speak even if it fails
-        try? configureForTTSMonitor()
+        // Use .default mode for good TTS audio quality
+        try? configureForTTSPlayback()
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * speechRate
