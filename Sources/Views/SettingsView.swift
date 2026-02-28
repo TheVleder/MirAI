@@ -290,48 +290,50 @@ struct SettingsView: View {
         let isSelected = audio.selectedVoiceID == voice.identifier
         let quality = AudioManager.qualityLabel(for: voice)
 
-        return Button {
+        return VStack(spacing: 6) {
+            Image(systemName: qualityIcon(quality))
+                .font(.title2)
+                .foregroundColor(qualityColor(quality))
+
+            Text(voice.name)
+                .font(.system(.caption2, design: .rounded, weight: .medium))
+                .foregroundColor(.white)
+                .lineLimit(1)
+
+            Text(quality)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(qualityColor(quality))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(qualityColor(quality).opacity(0.15))
+                .clipShape(Capsule())
+        }
+        .frame(width: 90)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isSelected ? Color.cyan.opacity(0.12) : Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? Color.cyan.opacity(0.6) : Color.clear, lineWidth: 1.5)
+        )
+        .overlay(alignment: .bottomTrailing) {
+            // Voice preview button — separate from selection tap
+            Button {
+                previewVoice(voice)
+            } label: {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(0.6))
+                    .padding(6)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
             withAnimation(.spring(response: 0.3)) {
                 audio.selectedVoiceID = voice.identifier
             }
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: qualityIcon(quality))
-                    .font(.title2)
-                    .foregroundColor(qualityColor(quality))
-
-                Text(voice.name)
-                    .font(.system(.caption2, design: .rounded, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-
-                Text(quality)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(qualityColor(quality))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(qualityColor(quality).opacity(0.15))
-                    .clipShape(Capsule())
-
-                // Preview button
-                Button {
-                    previewVoice(voice)
-                } label: {
-                    Image(systemName: "play.circle.fill")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.5))
-                }
-            }
-            .frame(width: 90)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.cyan.opacity(0.12) : Color.white.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.cyan.opacity(0.6) : Color.clear, lineWidth: 1.5)
-            )
         }
     }
 
