@@ -1,0 +1,69 @@
+name: Build MirAI iOS IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Unsigned IPA
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Resolve SPM dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project MirAI.xcodeproj \
+            -scheme MirAI
+
+      - name: Build iOS App (Unsigned)
+        run: |
+          xcodebuild build \
+            -project MirAI.xcodeproj \
+            -scheme MirAI \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Package IPA
+        run: |
+          # Find the .app bundle
+          APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ Error: .app bundle not found!"
+            find build/DerivedData -name "*.app" -type d
+            exit 1
+          fi
+          echo "✅ Found app: $APP_PATH"
+
+          # Create Payload structure for IPA
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+
+          # Zip into IPA
+          cd build
+          zip -r MirAI.ipa Payload
+          echo "✅ IPA created successfully"
+          ls -lh MirAI.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MirAI-unsigned
+          path: build/MirAI.ipa
+          retention-days: 30

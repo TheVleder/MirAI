@@ -1,0 +1,60 @@
+workflows:
+  ios-build:
+    name: MirAI iOS Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+
+      - name: Generate Xcode project
+        script: xcodegen generate
+
+      - name: Resolve SPM dependencies
+        script: |
+          xcodebuild -resolvePackageDependencies \
+            -project MirAI.xcodeproj \
+            -scheme MirAI
+
+      - name: Build iOS App (Unsigned)
+        script: |
+          xcodebuild build \
+            -project MirAI.xcodeproj \
+            -scheme MirAI \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Create unsigned IPA
+        script: |
+          APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app bundle not found!"
+            exit 1
+          fi
+
+          echo "Bundling IPA from: $APP_PATH"
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+
+          cd build
+          zip -r MirAI-unsigned.ipa Payload
+          echo "IPA created successfully"
+          ls -lh MirAI-unsigned.ipa
+
+    artifacts:
+      - build/*.ipa
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
