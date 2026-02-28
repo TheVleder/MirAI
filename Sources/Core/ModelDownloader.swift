@@ -11,15 +11,15 @@ final class ModelDownloader {
 
     // MARK: - Constants
 
-    static let defaultModelID = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+    static let defaultModelID = "mlx-community/Qwen2.5-3B-Instruct-4bit"
 
     /// Recommended models optimized for iPhone (sorted by performance)
-    static let recommendedModels: [(id: String, name: String, size: String, description: String)] = [
-        ("mlx-community/Qwen2.5-1.5B-Instruct-4bit", "Qwen 2.5 1.5B", "~1 GB", "Default — great balance of speed and quality"),
-        ("mlx-community/Llama-3.2-1B-Instruct-4bit", "Llama 3.2 1B", "~0.8 GB", "Meta's compact model — fast and reliable"),
-        ("mlx-community/Qwen3-1.7B-4bit", "Qwen 3 1.7B", "~1.2 GB", "Latest Qwen — best quality at this size"),
-        ("mlx-community/gemma-3-1b-it-4bit", "Gemma 3 1B", "~0.7 GB", "Google's efficient model — lightweight"),
-        ("mlx-community/SmolLM2-1.7B-Instruct-4bit", "SmolLM2 1.7B", "~1.1 GB", "HuggingFace's own — surprisingly capable"),
+    static let recommendedModels: [(id: String, name: String, size: String)] = [
+        ("mlx-community/Qwen2.5-3B-Instruct-4bit", "Qwen 2.5 3B", "~2 GB — Best balance"),
+        ("mlx-community/Qwen2.5-7B-Instruct-4bit", "Qwen 2.5 7B", "~4 GB — Smartest"),
+        ("mlx-community/Qwen2.5-1.5B-Instruct-4bit", "Qwen 2.5 1.5B", "~1 GB — Fastest"),
+        ("mlx-community/Llama-3.2-3B-Instruct-4bit", "Llama 3.2 3B", "~2 GB — Meta"),
+        ("mlx-community/Mistral-7B-Instruct-v0.3-4bit", "Mistral 7B", "~4 GB — Strong"),
     ]
 
     // MARK: - State

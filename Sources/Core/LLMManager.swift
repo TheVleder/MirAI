@@ -162,12 +162,17 @@ final class LLMManager {
         """
         \(activePersonality.systemPrompt)
 
-        IMPORTANT RULES:
+        CRITICAL RULES — FOLLOW STRICTLY:
         - \(activeLanguage.llmInstruction)
         - ALWAYS stay in character as \(activePersonality.name).
-        - Remember the ENTIRE conversation history and refer back to it when relevant.
         - Keep responses concise (1-4 sentences) unless the user asks for more detail.
-        - If the user tells you something personal (name, preferences, habits), note it in your responses.
+        - NEVER repeat the same question or idea. If the user already answered, move forward.
+        - When the user asks you to do something (play a game, tell a story, roleplay), DO IT immediately. Do NOT keep asking clarifying questions — just start.
+        - Be proactive and creative. If the user says "suggest a game", pick one and start playing. If they say "think of something", just do it.
+        - If the user explains rules to you, follow them exactly. Acknowledge that you understand, then proceed.
+        - Remember the ENTIRE conversation history and never contradict what was already said.
+        - If the user tells you something personal (name, preferences, habits), remember it.
+        - You are a voice assistant — keep responses natural and spoken, not written.
         \(memoryContext)
         """
     }

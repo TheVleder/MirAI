@@ -581,7 +581,7 @@ struct SettingsView: View {
                                                 .foregroundColor(.green)
                                         }
                                     }
-                                    Text("\(model.size) · \(model.description)")
+                                    Text(model.size)
                                         .font(.system(size: 10))
                                         .foregroundColor(.white.opacity(0.4))
                                         .lineLimit(1)
