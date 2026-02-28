@@ -474,7 +474,8 @@ final class AudioManager: NSObject {
 
     /// Internal: create and speak an utterance
     private func speakUtterance(_ text: String) {
-        do { try configureForTTSMonitor() } catch { return }
+        // Try to configure audio session, but still speak even if it fails
+        try? configureForTTSMonitor()
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * speechRate

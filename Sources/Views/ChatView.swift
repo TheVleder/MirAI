@@ -100,11 +100,16 @@ struct ChatView: View {
 
     private var header: some View {
         HStack {
+            // Small voice orb in header
+            VoiceOrb(audioState: audio.state, audioLevel: audio.audioLevel)
+                .scaleEffect(0.25)
+                .frame(width: 32, height: 32)
+
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(llm.activePersonality.emoji)
                         .font(.title3)
-                    Text("MirAI")
+                    Text(llm.activePersonality.name)
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                 }
@@ -258,11 +263,39 @@ struct ChatView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Voice Orb
+    // MARK: - State Indicator
 
     private var stateIndicator: some View {
-        VoiceOrb(audioState: audio.state, audioLevel: audio.audioLevel)
-            .padding(.vertical, 4)
+        HStack(spacing: 8) {
+            Group {
+                switch audio.state {
+                case .listening:
+                    Circle().fill(.red).frame(width: 8, height: 8)
+                    Text("Listening…").foregroundColor(.red.opacity(0.9))
+                case .processing:
+                    Circle().fill(.orange).frame(width: 8, height: 8)
+                    Text("Processing…").foregroundColor(.orange.opacity(0.9))
+                case .speaking:
+                    Circle().fill(.cyan).frame(width: 8, height: 8)
+                    Text("Speaking…").foregroundColor(.cyan.opacity(0.9))
+                case .idle:
+                    if llm.state == .generating {
+                        Circle().fill(.purple).frame(width: 8, height: 8)
+                        Text("Thinking…").foregroundColor(.purple.opacity(0.9))
+                    } else if llm.state == .loading {
+                        ProgressView().tint(.white.opacity(0.5)).scaleEffect(0.7)
+                        Text("Loading…").foregroundColor(.white.opacity(0.5))
+                    } else {
+                        Text(audio.listeningMode == .handsFree ? "🎙 Hands-Free" : "Ready")
+                            .foregroundColor(.white.opacity(0.3))
+                    }
+                }
+            }
+            .font(.system(.caption, design: .rounded, weight: .medium))
+        }
+        .frame(height: 20)
+        .animation(.easeInOut(duration: 0.3), value: audio.state)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Text Input Bar
