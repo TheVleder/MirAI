@@ -4,7 +4,7 @@ import MLXLLM
 import MLXLMCommon
 import MLX
 
-/// Manages the MLX LLM model lifecycle with personality, language, and context support.
+/// Manages the MLX LLM model lifecycle with personality, language, and streaming support.
 @Observable
 @MainActor
 final class LLMManager {
@@ -79,7 +79,7 @@ final class LLMManager {
         }
     }
 
-    // MARK: - Text Generation
+    // MARK: - Full Generation (non-streaming)
 
     func generate(prompt: String) async -> String {
         guard let session = chatSession else {
@@ -96,17 +96,75 @@ final class LLMManager {
             state = .ready
             return response
         } catch {
-            let desc = error.localizedDescription.lowercased()
-            let errorMsg: String
-            if desc.contains("memory") || desc.contains("malloc") || desc.contains("allocation") {
-                errorMsg = "⚠️ Out of memory. Close other apps and try again, or use a smaller model."
-            } else {
-                errorMsg = "Error: \(error.localizedDescription)"
-            }
-            state = .error(message: errorMsg)
-            currentResponse = errorMsg
-            return errorMsg
+            return handleError(error)
         }
+    }
+
+    // MARK: - Streaming Generation
+
+    /// Generate with streaming — calls `onSentence` each time a full sentence is ready.
+    /// This allows TTS to start speaking the first sentence immediately.
+    func generateStreaming(prompt: String, onSentence: @escaping (String) -> Void) async -> String {
+        guard let session = chatSession else {
+            state = .error(message: "Model not loaded")
+            return "Error: Model not loaded."
+        }
+
+        state = .generating
+        currentResponse = ""
+
+        var buffer = ""
+        let sentenceEnders: CharacterSet = CharacterSet(charactersIn: ".!?\n")
+
+        do {
+            let response = try await session.respond(to: prompt) { partial in
+                Task { @MainActor [weak self] in
+                    self?.currentResponse += partial
+                }
+
+                buffer += partial
+
+                // Check for sentence boundary
+                while let range = buffer.rangeOfCharacter(from: sentenceEnders) {
+                    let idx = buffer.index(after: range.lowerBound)
+                    let sentence = String(buffer[..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    buffer = String(buffer[idx...])
+
+                    if !sentence.isEmpty {
+                        onSentence(sentence)
+                    }
+                }
+
+                return .more
+            }
+
+            // Speak any remaining buffered text
+            let remaining = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remaining.isEmpty {
+                onSentence(remaining)
+            }
+
+            currentResponse = response
+            state = .ready
+            return response
+        } catch {
+            return handleError(error)
+        }
+    }
+
+    // MARK: - Error Handling
+
+    private func handleError(_ error: Error) -> String {
+        let desc = error.localizedDescription.lowercased()
+        let errorMsg: String
+        if desc.contains("memory") || desc.contains("malloc") || desc.contains("allocation") {
+            errorMsg = "⚠️ Out of memory. Close other apps and try again, or use a smaller model."
+        } else {
+            errorMsg = "Error: \(error.localizedDescription)"
+        }
+        state = .error(message: errorMsg)
+        currentResponse = errorMsg
+        return errorMsg
     }
 
     // MARK: - System Prompt
@@ -125,35 +183,26 @@ final class LLMManager {
 
     // MARK: - Conversation Management
 
-    /// Reset conversation with current personality + language
     func resetConversation() {
         guard let container = modelContainer else { return }
         chatSession = ChatSession(container, instructions: buildSystemPrompt())
         currentResponse = ""
     }
 
-    /// Start a new session, optionally pre-loading previous messages for context
     func startSession(withHistory messages: [(role: String, content: String)] = []) {
         guard let container = modelContainer else { return }
         chatSession = ChatSession(container, instructions: buildSystemPrompt())
         currentResponse = ""
 
-        // Pre-feed conversation history so the LLM has context
         if !messages.isEmpty {
             Task {
-                for msg in messages.suffix(10) { // Last 10 messages for context
+                for msg in messages.suffix(10) {
                     if msg.role == "user" {
-                        // Feed the user message and get a response (which we discard)
                         let _ = try? await chatSession?.respond(to: msg.content)
                     }
                 }
             }
         }
-    }
-
-    /// Switch personality and reset the session
-    func switchPersonality(_ personality: Personality) {
-        activePersonality = personality
     }
 
     /// Generate a smart title for a conversation using LLM
@@ -163,6 +212,10 @@ final class LLMManager {
         let prompt = "User said: \(userMessage)\nAI replied: \(aiResponse)"
         let title = try? await titleSession.respond(to: prompt)
         return title?.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"\'")))
+    }
+
+    func switchPersonality(_ personality: Personality) {
+        activePersonality = personality
     }
 
     func unloadModel() {

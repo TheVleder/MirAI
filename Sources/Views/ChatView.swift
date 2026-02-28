@@ -160,15 +160,23 @@ struct ChatView: View {
                     .foregroundColor(.white.opacity(0.6))
             }
 
-            // End conversation
+            // End conversation — prominent button
             Button {
                 audio.cleanup()
                 conversationManager.activeConversation = nil
                 dismiss()
             } label: {
-                Image(systemName: "xmark.circle")
-                    .font(.title2)
-                    .foregroundColor(.white.opacity(0.6))
+                HStack(spacing: 4) {
+                    Image(systemName: "xmark")
+                        .font(.caption.bold())
+                    Text("End")
+                        .font(.system(.caption, design: .rounded, weight: .bold))
+                }
+                .foregroundColor(.red)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.red.opacity(0.12))
+                .clipShape(Capsule())
             }
         }
         .padding(.horizontal, 20)
@@ -452,17 +460,21 @@ struct ChatView: View {
         conversationManager.addMessage(role: "user", content: text)
 
         Task {
-            let response = await llm.generate(prompt: text)
+            // Use streaming generation — speak each sentence as it's generated
+            let response = await llm.generateStreaming(prompt: text) { sentence in
+                Task { @MainActor in
+                    self.audio.queueSentence(sentence)
+                }
+            }
+
             conversationManager.addMessage(role: "assistant", content: response)
 
             if response.starts(with: "⚠️") || response.starts(with: "Error:") {
                 errorMessage = response
                 showErrorAlert = true
-            } else {
-                audio.speak(response)
             }
 
-            // Smart auto-title: use LLM to generate title after first exchange
+            // Smart auto-title after first exchange
             if let conv = conversationManager.activeConversation,
                conv.messages.filter({ $0.role == "user" }).count == 1 {
                 if let title = await llm.generateTitle(userMessage: text, aiResponse: response) {
