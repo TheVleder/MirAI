@@ -1,114 +1,127 @@
-# MirAI — Voice-to-Voice On-Device AI
+# MirAI — On‑Device Voice AI for iPhone
 
-> 🎙️ A fully local, privacy-first AI voice assistant for iPhone. Speak → Think → Respond — no internet after the initial model download.
+> A fully local, privacy-first conversational AI that runs 100% on your iPhone. No cloud. No APIs. No data leaves your device.
 
 ---
 
-## Architecture
+## ✨ Features
+
+### 🧠 On-Device LLM
+- Runs **MLX-accelerated** language models natively on Apple Silicon (A17 Pro+)
+- Models downloaded in-app from HuggingFace — **not bundled** in the binary
+- Dynamic model selector — use any compatible `mlx-community` model
+- App weighs **< 50 MB** before model download
+
+### 🎤 Full-Duplex Voice
+- **Push-to-Talk** or **Hands-Free** listening modes
+- **Barge-in**: Interrupt the AI mid-sentence by speaking — it stops immediately and listens
+- **Voice Activity Detection (VAD)**: Detects when you stop talking to auto-submit
+- On-device Speech-to-Text via Apple Speech framework
+
+### 🗣️ Text-to-Speech
+- Multiple TTS voices with quality tiers (Default / Enhanced / Premium)
+- Auto-selects the best available voice on your device
+- Voice selector in Settings to pick your preferred voice
+
+### 🎭 8 AI Personalities
+| Persona | Style |
+|---------|-------|
+| 🤝 The Friend | Warm, casual, supportive |
+| 🧑‍🍳 The Chef | Passionate about food and cooking |
+| 🔬 The Scientist | Curious, precise, uses analogies |
+| 🗳️ The Politician | Diplomatic, balanced, articulate |
+| 🃏 Dark Humor | Witty, sardonic, irreverent |
+| 🎭 The Poet | Lyrical, metaphorical, expressive |
+| 💪 The Coach | Motivational, action-oriented |
+| 🧠 The Philosopher | Deep thinker, questions everything |
+
+### 💬 Conversation History
+- **SwiftData** persistence — conversations survive app restarts
+- Create, rename, delete conversations
+- Search across all conversations
+- Auto-titles from first message
+- Per-conversation personality tracking
+
+### 🔒 Background Audio
+- AI stays alive when screen locks or you switch apps
+- `UIBackgroundModes: audio` keeps mic and TTS active
+
+### 📊 Download Experience
+- Progress bar with percentage
+- Download speed indicator (MB/s)
+- File size display
+- One-tap model deletion to free storage
+
+---
+
+## 📱 Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│              MirAI (SwiftUI)            │
-├──────────┬──────────┬───────────────────┤
-│ Download │   Chat   │   ContentView     │
-│  View    │   View   │   (Router)        │
-├──────────┴──────────┴───────────────────┤
-│              Core Layer                 │
-├──────────┬──────────┬───────────────────┤
-│  Model   │   LLM    │     Audio         │
-│Downloader│  Manager │    Manager        │
-│(Hub DL)  │(MLX Chat)│ (STT + TTS)       │
-├──────────┴──────────┴───────────────────┤
-│          Apple Frameworks               │
-│ mlx-swift-lm │ Speech.framework │ AVF   │
-└─────────────────────────────────────────┘
+Sources/
+├── Models/
+│   ├── Conversation.swift       SwiftData model
+│   ├── Message.swift            SwiftData model
+│   └── Personality.swift        8 AI personas
+├── Core/
+│   ├── AudioManager.swift       STT + TTS + VAD + barge-in
+│   ├── LLMManager.swift         MLX model lifecycle + personalities
+│   ├── ConversationManager.swift  CRUD operations
+│   └── ModelDownloader.swift    HuggingFace download + speed tracking
+├── Views/
+│   ├── ContentView.swift        Root router
+│   ├── DownloadView.swift       Model download UI
+│   ├── ConversationListView.swift  Conversation inbox
+│   ├── ChatView.swift           Voice chat interface
+│   └── SettingsView.swift       Persona, voice, mode settings
+└── MirAIApp.swift               Entry point + SwiftData container
 ```
 
-## Tech Stack
+**Stack**: SwiftUI · MLX Swift · SwiftData · AVFoundation · Speech · ActivityKit
 
-| Component | Technology | Details |
-|-----------|-----------|---------|
-| **UI** | SwiftUI | iOS 17+, Swift 6, dark mode |
-| **LLM Engine** | [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) | 100% on-device via Metal/ANE |
-| **Model** | Qwen2.5-1.5B-Instruct-4bit | ~1 GB, downloaded on first launch |
-| **STT** | Speech.framework | `requiresOnDeviceRecognition = true` |
-| **TTS** | AVFoundation | `AVSpeechSynthesizer` |
-| **CI/CD** | GitHub Actions + Codemagic | Unsigned IPA for AltStore |
+---
 
-## Project Structure
+## 🛠️ Build & Install
 
-```
-MirAI/
-├── Sources/
-│   ├── MirAIApp.swift              # App entry point
-│   ├── Info.plist                  # Permissions
-│   ├── Core/
-│   │   ├── ModelDownloader.swift   # HuggingFace model download
-│   │   ├── LLMManager.swift       # MLX chat engine
-│   │   └── AudioManager.swift     # STT + TTS pipeline
-│   └── Views/
-│       ├── ContentView.swift       # Router (download ↔ chat)
-│       ├── DownloadView.swift      # Model download UI
-│       └── ChatView.swift          # Voice chat interface
-├── project.yml                     # XcodeGen definition
-├── codemagic.yaml                  # Codemagic CI/CD
-├── .github/workflows/
-│   └── ios-build.yml               # GitHub Actions CI/CD
-└── README.md
+### Requirements
+- Xcode 16+ (or Codemagic with Xcode 26+)
+- iOS 17.0+ deployment target
+- iPhone with A17 Pro or newer recommended
+
+### Build locally
+```bash
+brew install xcodegen
+xcodegen generate
+xcodebuild build \
+  -project MirAI.xcodeproj \
+  -scheme MirAI \
+  -configuration Release \
+  -sdk iphoneos \
+  CODE_SIGNING_ALLOWED=NO
 ```
 
-## Prerequisites
+### CI/CD
+- **GitHub Actions**: Builds unsigned IPA on every push to `main`
+- **Codemagic**: Fallback CI with Metal Toolchain support
+- Download the `.ipa` artifact from the Actions tab
 
-1. **iPhone 15 Pro** (or any A14+ device with iOS 17+)
-2. **AltStore** or **Sideloadly** installed on your PC
-3. **GitHub account** (for CI/CD builds)
+### Install via AltStore
+1. Download the `.ipa` from GitHub Actions artifacts
+2. Open AltStore on your iPhone
+3. Tap **+** → select the `.ipa` → install
+4. Launch MirAI → download a model → start talking
 
-## How to Build
+---
 
-### 1. Push to GitHub
-```powershell
-cd MirAI
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/MirAI.git
-git push -u origin main
-```
+## 🔐 Privacy
 
-### 2. Download IPA
-1. Go to your repo → **Actions** tab.
-2. Wait for the **"Build MirAI iOS IPA"** workflow to complete (~5-10 min).
-3. Download the **MirAI-unsigned** artifact (ZIP containing the IPA).
+- **Zero network usage** after model download
+- All processing happens **on-device**
+- Conversations stored locally via SwiftData
+- No analytics, no telemetry, no tracking
+- Microphone used only for voice input
 
-### 3. Install via AltStore
-1. Extract `MirAI.ipa` from the downloaded ZIP.
-2. Connect your iPhone to your PC with **AltServer** running.
-3. Open **AltStore** on your iPhone → **My Apps** → **+** → select the IPA.
-4. Sign in with your Apple ID (valid for 7 days with free account).
+---
 
-## First Launch
-
-1. **Download Screen**: Tap "Download Model" → wait for ~1 GB download.
-2. **Chat Screen**: Once downloaded, the model loads into memory.
-3. **Talk**: Press and hold the mic button → speak → release → AI responds with voice.
-4. **Next launches**: Model is cached — goes straight to the chat screen.
-
-## Privacy
-
-- 🔒 **Zero network calls** after model download
-- 🎤 **On-device speech recognition** (no audio leaves the phone)
-- 🧠 **On-device inference** via Apple's MLX framework
-- 📵 **Works in airplane mode** (after initial setup)
-
-## Fallback CI/CD (Codemagic)
-
-If you hit GitHub Actions quota limits, push the repo to Codemagic:
-1. Sign up at [codemagic.io](https://codemagic.io)
-2. Connect your GitHub repository
-3. The `codemagic.yaml` file will be automatically detected
-4. Builds use M2 runners (500 free minutes/month)
-
-## License
+## 📝 License
 
 MIT
