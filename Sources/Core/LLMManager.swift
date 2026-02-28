@@ -34,6 +34,16 @@ final class LLMManager {
         }
     }
 
+    /// Current active language
+    var activeLanguage: AppLanguage = AppLanguage.saved() {
+        didSet {
+            activeLanguage.save()
+            if modelContainer != nil {
+                resetConversation()
+            }
+        }
+    }
+
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
 
@@ -64,7 +74,7 @@ final class LLMManager {
             modelContainer = container
             loadedModelName = modelID.components(separatedBy: "/").last ?? modelID
 
-            chatSession = ChatSession(container, instructions: activePersonality.systemPrompt)
+            chatSession = ChatSession(container, instructions: buildSystemPrompt())
 
             state = .ready
         } catch {
@@ -96,10 +106,15 @@ final class LLMManager {
         }
     }
 
-    /// Reset conversation with current personality
+    /// Build system prompt combining personality + language
+    private func buildSystemPrompt() -> String {
+        return activePersonality.systemPrompt + " " + activeLanguage.llmInstruction
+    }
+
+    /// Reset conversation with current personality + language
     func resetConversation() {
         guard let container = modelContainer else { return }
-        chatSession = ChatSession(container, instructions: activePersonality.systemPrompt)
+        chatSession = ChatSession(container, instructions: buildSystemPrompt())
         currentResponse = ""
     }
 

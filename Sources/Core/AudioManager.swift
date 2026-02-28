@@ -44,7 +44,7 @@ final class AudioManager: NSObject {
 
     // MARK: - Private
 
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private var speechRecognizer: SFSpeechRecognizer?
     private let synthesizer = AVSpeechSynthesizer()
     private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -74,8 +74,12 @@ final class AudioManager: NSObject {
             listeningMode = ListeningMode(rawValue: mode) ?? .pushToTalk
         }
         selectedVoiceID = UserDefaults.standard.string(forKey: "selectedVoiceID")
+
+        // Set up language
+        let lang = AppLanguage.saved()
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: lang.sttLocale))
         if selectedVoiceID == nil {
-            selectedVoiceID = Self.bestAvailableVoice()?.identifier
+            selectedVoiceID = Self.bestAvailableVoice(for: lang.ttsLanguage)?.identifier
         }
 
         ttsDelegate = TTSDelegate { [weak self] in
@@ -93,6 +97,16 @@ final class AudioManager: NSObject {
             }
         }
         synthesizer.delegate = ttsDelegate
+    }
+
+    // MARK: - Language
+
+    /// Switch STT + TTS language
+    func setLanguage(_ language: AppLanguage) {
+        language.save()
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: language.sttLocale))
+        // Auto-select best voice for the new language
+        selectedVoiceID = Self.bestAvailableVoice(for: language.ttsLanguage)?.identifier
     }
 
     // MARK: - Voice Helpers

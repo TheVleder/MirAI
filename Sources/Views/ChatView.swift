@@ -78,6 +78,26 @@ struct ChatView: View {
 
             Spacer()
 
+            // Language picker
+            Menu {
+                ForEach(AppLanguage.allCases) { lang in
+                    Button {
+                        llm.activeLanguage = lang
+                        audio.setLanguage(lang)
+                    } label: {
+                        HStack {
+                            Text("\(lang.flag) \(lang.name)")
+                            if llm.activeLanguage == lang {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text(llm.activeLanguage.flag)
+                    .font(.title2)
+            }
+
             // Reset conversation
             Button {
                 llm.resetConversation()
