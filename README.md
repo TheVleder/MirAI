@@ -1,4 +1,4 @@
-# MirAI — On‑Device Voice AI for iPhone
+# MirAI — On-Device Voice AI for iPhone
 
 > A fully local, privacy-first conversational AI that runs 100% on your iPhone. No cloud. No APIs. No data leaves your device.
 
@@ -10,6 +10,7 @@
 - Runs **MLX-accelerated** language models natively on Apple Silicon (A17 Pro+)
 - Models downloaded in-app from HuggingFace — **not bundled** in the binary
 - Dynamic model selector — use any compatible `mlx-community` model
+- Switch/download/delete models directly from Settings
 - App weighs **< 50 MB** before model download
 
 ### 🎤 Full-Duplex Voice
@@ -18,21 +19,24 @@
 - **Voice Activity Detection (VAD)**: Detects when you stop talking to auto-submit
 - On-device Speech-to-Text via Apple Speech framework
 
+### ⌨️ Text Input
+- Type messages when you can't speak (noisy environments, meetings)
+- Auto-expanding text field with send button
+- Works alongside voice controls
+
 ### 🗣️ Text-to-Speech
 - Multiple TTS voices with quality tiers (Default / Enhanced / Premium)
 - Auto-selects the best available voice on your device
-- Voice selector in Settings to pick your preferred voice
-- Tip in Settings for downloading higher-quality Siri voices
+- **Speech speed slider** (80%–150%) in Settings
+- **Audio ducking** — background music auto-lowers during AI speech
+- Voice selector with Siri voice download tip
 
 ### 🌍 Multi-Language Support
-- In-chat language picker: **English 🇬🇧**, **Español 🇪🇸**, **Русский �🇺**
-- Switching language changes:
-  - STT recognition locale
-  - TTS voice (auto-selects best for that language)
-  - LLM system prompt (AI responds in the selected language)
+- In-chat language picker: **English 🇬🇧**, **Español 🇪🇸**, **Русский ��🇺**
+- Switching language changes STT locale, TTS voice, and LLM response language
 - Persisted across sessions
 
-### �🎭 8 AI Personalities
+### 🎭 Personalities
 | Persona | Style |
 |---------|-------|
 | 🤝 The Friend | Warm, casual, supportive |
@@ -43,23 +47,36 @@
 | 🎭 The Poet | Lyrical, metaphorical, expressive |
 | 💪 The Coach | Motivational, action-oriented |
 | 🧠 The Philosopher | Deep thinker, questions everything |
+| ➕ **Custom** | Create your own persona with custom prompts |
+
+### ✏️ Editable Transcriptions
+- Tap any message to edit the transcription in-line
+- Edited messages auto-resend to the LLM for a corrected response
 
 ### 💬 Conversation History
 - **SwiftData** persistence — conversations survive app restarts
 - Create, rename, delete conversations
-- Search across all conversations
-- Auto-titles from first message
-- Per-conversation personality tracking
+- Search across all conversations and message content
+- **Smart auto-titling** — LLM generates concise titles after first exchange
+- Export/share conversations as formatted text
 
-### 🔒 Background Audio
+### 📲 Onboarding
+- 3-screen first-launch tutorial (Welcome → Personalities → Start Talking)
+- Skip button for power users
+
+### 🎙️ Siri Shortcuts
+- "Hey Siri, ask MirAI" — opens the app and starts listening
+- Powered by AppIntents framework
+
+### 📳 Haptic Feedback
+- Tactile feedback on every voice state change (listening, speaking, idle)
+- Premium feel on mic button interactions
+
+### � Background Audio & Privacy
 - AI stays alive when screen locks or you switch apps
-- `UIBackgroundModes: audio` keeps mic and TTS active
-
-### 📊 Download Experience
-- Progress bar with percentage
-- Download speed indicator (MB/s)
-- File size display
-- One-tap model deletion to free storage
+- **Zero network usage** after model download
+- All processing happens **on-device**
+- No analytics, no telemetry, no tracking
 
 ---
 
@@ -70,23 +87,27 @@ Sources/
 ├── Models/
 │   ├── AppLanguage.swift        EN / ES / RU enum
 │   ├── Conversation.swift       SwiftData model
+│   ├── CustomPersonality.swift  User-created personas (SwiftData)
 │   ├── Message.swift            SwiftData model
-│   └── Personality.swift        8 AI personas
+│   └── Personality.swift        8 built-in AI personas
 ├── Core/
-│   ├── AudioManager.swift       STT + TTS + VAD + barge-in
-│   ├── LLMManager.swift         MLX model lifecycle + personalities
-│   ├── ConversationManager.swift  CRUD operations
-│   └── ModelDownloader.swift    HuggingFace download + speed tracking
+│   ├── AudioManager.swift       STT + TTS + VAD + barge-in + speed
+│   ├── LLMManager.swift         MLX model lifecycle + smart titles
+│   ├── ConversationManager.swift  CRUD + message editing
+│   ├── ModelDownloader.swift    HuggingFace download + speed tracking
+│   └── SiriShortcuts.swift      AppIntents + shortcuts
 ├── Views/
-│   ├── ContentView.swift        Root router
+│   ├── ContentView.swift        Root router (Onboarding → Download → Chat)
+│   ├── OnboardingView.swift     3-screen first-launch tutorial
 │   ├── DownloadView.swift       Model download UI
-│   ├── ConversationListView.swift  Conversation inbox
-│   ├── ChatView.swift           Voice chat interface
-│   └── SettingsView.swift       Persona, voice, mode settings
+│   ├── ConversationListView.swift  Conversation inbox + search
+│   ├── ChatView.swift           Voice + text chat interface
+│   ├── SettingsView.swift       Persona, voice, speed, model settings
+│   └── CustomPersonaEditorView.swift  Custom persona builder
 └── MirAIApp.swift               Entry point + SwiftData container
 ```
 
-**Stack**: SwiftUI · MLX Swift · SwiftData · AVFoundation · Speech · ActivityKit
+**Stack**: SwiftUI · MLX Swift · SwiftData · AVFoundation · Speech · AppIntents
 
 ---
 

@@ -13,6 +13,8 @@ struct ChatView: View {
     @State private var modelLoaded = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
+    @State private var textInput = ""
+    @State private var showShareSheet = false
 
     var body: some View {
         ZStack {
@@ -24,8 +26,9 @@ struct ChatView: View {
                 header
                 messageList
                 stateIndicator
+                textInputBar
                 controlArea
-                    .padding(.bottom, 30)
+                    .padding(.bottom, 20)
             }
         }
         .navigationBarBackButtonHidden(false)
@@ -34,6 +37,23 @@ struct ChatView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let text = exportConversation() {
+                ShareSheet(items: [text])
+            }
+        }
+        .onChange(of: audio.state) { _, newState in
+            switch newState {
+            case .listening:
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            case .speaking:
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            case .idle:
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            case .processing:
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            }
         }
         .task {
             await audio.requestPermissions()
@@ -50,6 +70,14 @@ struct ChatView: View {
                     (role: $0.role, content: $0.content)
                 }
                 llm.startSession(withHistory: history)
+            }
+
+            // Auto-start listening if launched from Siri
+            if UserDefaults.standard.bool(forKey: "siriLaunchListening") {
+                UserDefaults.standard.set(false, forKey: "siriLaunchListening")
+                if modelLoaded && audio.isAuthorized {
+                    audio.startListening()
+                }
             }
 
             // Set up hands-free callback
@@ -119,6 +147,15 @@ struct ChatView: View {
                 llm.resetConversation()
             } label: {
                 Image(systemName: "arrow.counterclockwise.circle")
+                    .font(.title2)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            // Export conversation
+            Button {
+                showShareSheet = true
+            } label: {
+                Image(systemName: "square.and.arrow.up")
                     .font(.title2)
                     .foregroundColor(.white.opacity(0.6))
             }
@@ -256,6 +293,37 @@ struct ChatView: View {
         .animation(.easeOut(duration: 0.1), value: audio.audioLevel)
     }
 
+    // MARK: - Text Input Bar
+
+    private var textInputBar: some View {
+        HStack(spacing: 10) {
+            TextField("Type a message...", text: $textInput, axis: .vertical)
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .lineLimit(1...4)
+
+            if !textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    let text = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    textInput = ""
+                    handleUserUtterance(text)
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(.cyan)
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .animation(.spring(response: 0.3), value: textInput.isEmpty)
+    }
+
     // MARK: - Control Area
 
     private var controlArea: some View {
@@ -386,11 +454,20 @@ struct ChatView: View {
         Task {
             let response = await llm.generate(prompt: text)
             conversationManager.addMessage(role: "assistant", content: response)
+
             if response.starts(with: "⚠️") || response.starts(with: "Error:") {
                 errorMessage = response
                 showErrorAlert = true
             } else {
                 audio.speak(response)
+            }
+
+            // Smart auto-title: use LLM to generate title after first exchange
+            if let conv = conversationManager.activeConversation,
+               conv.messages.filter({ $0.role == "user" }).count == 1 {
+                if let title = await llm.generateTitle(userMessage: text, aiResponse: response) {
+                    conversationManager.rename(conv, to: title)
+                }
             }
         }
     }
@@ -413,6 +490,31 @@ struct ChatView: View {
             audio.speak(response)
         }
     }
+
+    // MARK: - Export
+
+    private func exportConversation() -> String? {
+        let messages = conversationManager.currentMessages
+        guard !messages.isEmpty else { return nil }
+        let title = conversationManager.activeConversation?.title ?? "Conversation"
+        var text = "MirAI - \(title)\n"
+        text += String(repeating: "-", count: 30) + "\n\n"
+        for msg in messages {
+            let prefix = msg.role == "user" ? "You" : "MirAI"
+            text += "\(prefix):\n\(msg.content)\n\n"
+        }
+        return text
+    }
+}
+
+// MARK: - Share Sheet (UIKit Wrapper)
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uiVC: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Message Bubble (uses SwiftData Message)

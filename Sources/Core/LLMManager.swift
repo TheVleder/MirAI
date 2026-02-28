@@ -156,6 +156,15 @@ final class LLMManager {
         activePersonality = personality
     }
 
+    /// Generate a smart title for a conversation using LLM
+    func generateTitle(userMessage: String, aiResponse: String) async -> String? {
+        guard let container = modelContainer else { return nil }
+        let titleSession = ChatSession(container, instructions: "Generate a very short title (3-5 words max) for a conversation. Reply ONLY with the title, nothing else.")
+        let prompt = "User said: \(userMessage)\nAI replied: \(aiResponse)"
+        let title = try? await titleSession.respond(to: prompt)
+        return title?.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"\'")))
+    }
+
     func unloadModel() {
         modelContainer = nil
         chatSession = nil
