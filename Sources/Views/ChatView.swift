@@ -246,48 +246,59 @@ struct ChatView: View {
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
                     if !isHolding {
-                        startPTT()
+                        // If AI is speaking, barge-in directly
+                        if audio.state == .speaking {
+                            audio.bargeIn()
+                            isHolding = true
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                        } else {
+                            startPTT()
+                        }
                     }
                 }
                 .onEnded { _ in
                     stopPTT()
                 }
         )
-        .disabled(!modelLoaded || !audio.isAuthorized || llm.state == .generating || audio.state == .speaking)
+        .disabled(!modelLoaded || !audio.isAuthorized || llm.state == .generating)
         .opacity(modelLoaded && audio.isAuthorized ? 1 : 0.4)
     }
 
     private var handsFreeButton: some View {
         let isActive = audio.state == .listening
+        let isSpeaking = audio.state == .speaking
 
         return Button {
-            if isActive {
+            if isSpeaking {
+                // Barge-in: interrupt AI and start listening
+                audio.bargeIn()
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            } else if isActive {
                 audio.stopListening()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } else {
-                // If speaking, barge-in first
-                if audio.state == .speaking {
-                    audio.bargeIn()
-                } else {
-                    audio.startListening()
-                }
+                audio.startListening()
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } label: {
             Circle()
                 .fill(
-                    isActive
+                    isSpeaking
+                    ? LinearGradient(colors: [.orange.opacity(0.9), .red.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                    : isActive
                     ? LinearGradient(colors: [.red.opacity(0.9), .orange.opacity(0.8)], startPoint: .top, endPoint: .bottom)
                     : LinearGradient(colors: [.green.opacity(0.8), .cyan.opacity(0.7)], startPoint: .top, endPoint: .bottom)
                 )
                 .frame(width: 88, height: 88)
-                .shadow(color: isActive ? .red.opacity(0.4) : .green.opacity(0.3), radius: 20, y: 8)
+                .shadow(color: isActive ? .red.opacity(0.4) : isSpeaking ? .orange.opacity(0.4) : .green.opacity(0.3), radius: 20, y: 8)
                 .overlay(
-                    Image(systemName: isActive ? "stop.fill" : "ear.fill")
+                    Image(systemName: isSpeaking ? "hand.raised.fill" : isActive ? "stop.fill" : "ear.fill")
                         .font(.system(size: 30, weight: .medium))
                         .foregroundColor(.white)
                 )
-                .scaleEffect(isActive ? 1.05 : 1.0)
+                .scaleEffect(isActive || isSpeaking ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isActive)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSpeaking)
         }
         .disabled(!modelLoaded || !audio.isAuthorized || llm.state == .generating)
         .opacity(modelLoaded && audio.isAuthorized ? 1 : 0.4)
