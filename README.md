@@ -22,8 +22,17 @@
 - Multiple TTS voices with quality tiers (Default / Enhanced / Premium)
 - Auto-selects the best available voice on your device
 - Voice selector in Settings to pick your preferred voice
+- Tip in Settings for downloading higher-quality Siri voices
 
-### 🎭 8 AI Personalities
+### 🌍 Multi-Language Support
+- In-chat language picker: **English 🇬🇧**, **Español 🇪🇸**, **Русский �🇺**
+- Switching language changes:
+  - STT recognition locale
+  - TTS voice (auto-selects best for that language)
+  - LLM system prompt (AI responds in the selected language)
+- Persisted across sessions
+
+### �🎭 8 AI Personalities
 | Persona | Style |
 |---------|-------|
 | 🤝 The Friend | Warm, casual, supportive |
@@ -59,6 +68,7 @@
 ```
 Sources/
 ├── Models/
+│   ├── AppLanguage.swift        EN / ES / RU enum
 │   ├── Conversation.swift       SwiftData model
 │   ├── Message.swift            SwiftData model
 │   └── Personality.swift        8 AI personas
