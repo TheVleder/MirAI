@@ -28,6 +28,24 @@ final class ModelDownloader {
     var errorMessage: String? = nil
     var showError: Bool = false
 
+    // Speed tracking
+    private var lastSpeedCheckTime: Date = Date()
+    private var lastSpeedCheckBytes: Int64 = 0
+
+    /// Download speed formatted string
+    var downloadSpeed: String {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastSpeedCheckTime)
+        guard elapsed > 0.5 else { return "Calculating…" }
+        let bytesPerSec = Double(downloadedBytes - lastSpeedCheckBytes) / elapsed
+        if bytesPerSec > 1_000_000 {
+            return String(format: "%.1f MB/s", bytesPerSec / 1_000_000)
+        } else if bytesPerSec > 1_000 {
+            return String(format: "%.0f KB/s", bytesPerSec / 1_000)
+        }
+        return "Calculating…"
+    }
+
     /// The currently configured model ID (persisted via UserDefaults)
     var modelID: String {
         didSet {
@@ -152,6 +170,8 @@ final class ModelDownloader {
         state = .downloading(progress: 0)
         downloadedBytes = 0
         totalBytes = 0
+        lastSpeedCheckTime = Date()
+        lastSpeedCheckBytes = 0
 
         let config = ModelConfiguration(
             id: cleanID,

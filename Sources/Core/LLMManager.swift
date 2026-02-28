@@ -4,8 +4,7 @@ import MLXLLM
 import MLXLMCommon
 import MLX
 
-/// Manages the MLX LLM model lifecycle: loading, multi-turn chat, and streaming text generation.
-/// Dynamically loads whichever model the user has downloaded.
+/// Manages the MLX LLM model lifecycle with personality support.
 @Observable
 @MainActor
 final class LLMManager {
@@ -24,21 +23,29 @@ final class LLMManager {
     var currentResponse: String = ""
     var loadedModelName: String = ""
 
+    /// Current personality
+    var activePersonality: Personality = Personality.find("friend") {
+        didSet {
+            UserDefaults.standard.set(activePersonality.id, forKey: "activePersonalityID")
+            // Reset session with new personality prompt
+            if modelContainer != nil {
+                resetConversation()
+            }
+        }
+    }
+
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
 
-    // MARK: - System Prompt
+    // MARK: - Init
 
-    private let systemPrompt = """
-        You are MirAI, a friendly and concise voice AI assistant. \
-        Keep your responses short and conversational — typically 1-3 sentences. \
-        You are running locally on the user's iPhone. \
-        Respond naturally as if having a spoken conversation.
-        """
+    init() {
+        let savedID = UserDefaults.standard.string(forKey: "activePersonalityID") ?? "friend"
+        activePersonality = Personality.find(savedID)
+    }
 
     // MARK: - Model Loading
 
-    /// Load the model dynamically based on the given model ID
     func loadModel(modelID: String) async {
         guard state != .loading && state != .generating else { return }
         state = .loading
@@ -57,8 +64,7 @@ final class LLMManager {
             modelContainer = container
             loadedModelName = modelID.components(separatedBy: "/").last ?? modelID
 
-            // Create a chat session for multi-turn conversation
-            chatSession = ChatSession(container, instructions: systemPrompt)
+            chatSession = ChatSession(container, instructions: activePersonality.systemPrompt)
 
             state = .ready
         } catch {
@@ -68,7 +74,6 @@ final class LLMManager {
 
     // MARK: - Text Generation
 
-    /// Generate a response for the given user prompt
     func generate(prompt: String) async -> String {
         guard let session = chatSession else {
             state = .error(message: "Model not loaded")
@@ -91,14 +96,18 @@ final class LLMManager {
         }
     }
 
-    /// Reset the conversation history
+    /// Reset conversation with current personality
     func resetConversation() {
         guard let container = modelContainer else { return }
-        chatSession = ChatSession(container, instructions: systemPrompt)
+        chatSession = ChatSession(container, instructions: activePersonality.systemPrompt)
         currentResponse = ""
     }
 
-    /// Unload the current model from memory
+    /// Switch personality and reset the session
+    func switchPersonality(_ personality: Personality) {
+        activePersonality = personality
+    }
+
     func unloadModel() {
         modelContainer = nil
         chatSession = nil

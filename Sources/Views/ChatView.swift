@@ -1,16 +1,15 @@
 import SwiftUI
 
-/// Voice chat interface with push-to-talk, state indicators, message history, and model management.
+/// Voice chat interface with barge-in, hands-free mode, SwiftData persistence, and personality display.
 struct ChatView: View {
 
     @Environment(ModelDownloader.self) private var downloader
     @Environment(LLMManager.self) private var llm
     @Environment(AudioManager.self) private var audio
+    @Environment(ConversationManager.self) private var conversationManager
 
-    @State private var messages: [ChatMessage] = []
     @State private var isHolding = false
     @State private var modelLoaded = false
-    @State private var showDeleteConfirmation = false
 
     var body: some View {
         ZStack {
@@ -19,37 +18,30 @@ struct ChatView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header
                 header
-
-                // Messages
                 messageList
-
-                // State indicator
                 stateIndicator
-
-                // Talk button
-                talkButton
-                    .padding(.bottom, 40)
+                controlArea
+                    .padding(.bottom, 30)
             }
         }
+        .navigationBarBackButtonHidden(false)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .task {
             await audio.requestPermissions()
-            if let modelID = downloader.downloadedModelID {
+            if let modelID = downloader.downloadedModelID, llm.state != .ready {
                 await llm.loadModel(modelID: modelID)
                 modelLoaded = true
+            } else if llm.state == .ready {
+                modelLoaded = true
             }
-        }
-        .alert("Delete Model", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                llm.unloadModel()
-                messages.removeAll()
-                modelLoaded = false
-                downloader.deleteCurrentModel()
+
+            // Set up hands-free callback
+            audio.onHandsFreeUtteranceComplete = { text in
+                Task { @MainActor in
+                    handleUserUtterance(text)
+                }
             }
-        } message: {
-            Text("This will delete the current model (\\(llm.loadedModelName)) and free storage. You'll be taken back to the download screen to choose a new model.")
         }
     }
 
@@ -58,15 +50,19 @@ struct ChatView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("MirAI")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                HStack(spacing: 6) {
+                    Text(llm.activePersonality.emoji)
+                        .font(.title3)
+                    Text("MirAI")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
 
                 HStack(spacing: 6) {
                     Circle()
                         .fill(modelLoaded ? Color.green : Color.orange)
                         .frame(width: 6, height: 6)
-                    Text(modelLoaded ? llm.loadedModelName : "Loading model…")
+                    Text(modelLoaded ? "\(llm.loadedModelName) · \(llm.activePersonality.name)" : "Loading model…")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
@@ -75,19 +71,9 @@ struct ChatView: View {
 
             Spacer()
 
-            // Delete model button
-            Button {
-                showDeleteConfirmation = true
-            } label: {
-                Image(systemName: "trash.circle")
-                    .font(.title2)
-                    .foregroundColor(.red.opacity(0.5))
-            }
-
-            // Reset conversation button
+            // Reset conversation
             Button {
                 llm.resetConversation()
-                messages.removeAll()
             } label: {
                 Image(systemName: "arrow.counterclockwise.circle")
                     .font(.title2)
@@ -95,8 +81,8 @@ struct ChatView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Message List
@@ -105,6 +91,7 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 12) {
+                    let messages = conversationManager.currentMessages
                     if messages.isEmpty {
                         emptyState
                     }
@@ -117,8 +104,8 @@ struct ChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .onChange(of: messages.count) { _, _ in
-                if let last = messages.last {
+            .onChange(of: conversationManager.currentMessages.count) { _, _ in
+                if let last = conversationManager.currentMessages.last {
                     withAnimation(.easeOut(duration: 0.3)) {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
@@ -131,11 +118,12 @@ struct ChatView: View {
         VStack(spacing: 16) {
             Spacer().frame(height: 60)
 
-            Image(systemName: "waveform.and.mic")
+            Text(llm.activePersonality.emoji)
                 .font(.system(size: 48))
-                .foregroundColor(.white.opacity(0.15))
 
-            Text("Hold the button to speak")
+            Text(audio.listeningMode == .pushToTalk
+                 ? "Hold the button to speak"
+                 : "Tap the mic to start listening")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.3))
 
@@ -151,7 +139,7 @@ struct ChatView: View {
             Group {
                 switch audio.state {
                 case .listening:
-                    PulsingDot(color: .red)
+                    audioLevelBar
                     Text("Listening…")
                         .foregroundColor(.red.opacity(0.9))
                 case .processing:
@@ -162,6 +150,19 @@ struct ChatView: View {
                     PulsingDot(color: .cyan)
                     Text("Speaking…")
                         .foregroundColor(.cyan.opacity(0.9))
+
+                    // Barge-in hint
+                    Button {
+                        audio.bargeIn()
+                    } label: {
+                        Text("Interrupt")
+                            .font(.system(.caption2, weight: .semibold))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.red.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
                 case .idle:
                     if llm.state == .generating {
                         PulsingDot(color: .purple)
@@ -171,10 +172,10 @@ struct ChatView: View {
                         ProgressView()
                             .tint(.white.opacity(0.5))
                             .scaleEffect(0.7)
-                        Text("Loading model…")
+                        Text("Loading…")
                             .foregroundColor(.white.opacity(0.5))
                     } else {
-                        Text("Ready")
+                        Text(audio.listeningMode == .handsFree ? "🎙 Hands-Free" : "Ready")
                             .foregroundColor(.white.opacity(0.3))
                     }
                 }
@@ -187,11 +188,32 @@ struct ChatView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Talk Button
+    /// Audio level visualization bar
+    private var audioLevelBar: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<5) { i in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.red.opacity(Double(i) * 0.2 < Double(audio.audioLevel) ? 0.9 : 0.2))
+                    .frame(width: 3, height: CGFloat(4 + i * 3))
+            }
+        }
+        .animation(.easeOut(duration: 0.1), value: audio.audioLevel)
+    }
 
-    private var talkButton: some View {
+    // MARK: - Control Area
+
+    private var controlArea: some View {
+        Group {
+            if audio.listeningMode == .pushToTalk {
+                pushToTalkButton
+            } else {
+                handsFreeButton
+            }
+        }
+    }
+
+    private var pushToTalkButton: some View {
         ZStack {
-            // Outer glow when holding
             if isHolding {
                 Circle()
                     .fill(Color.cyan.opacity(0.1))
@@ -203,27 +225,14 @@ struct ChatView: View {
                     )
             }
 
-            // Main button
             Circle()
                 .fill(
                     isHolding
-                    ? LinearGradient(
-                        colors: [.red.opacity(0.9), .orange.opacity(0.8)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    : LinearGradient(
-                        colors: [.cyan.opacity(0.8), .blue.opacity(0.7)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                    ? LinearGradient(colors: [.red.opacity(0.9), .orange.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                    : LinearGradient(colors: [.cyan.opacity(0.8), .blue.opacity(0.7)], startPoint: .top, endPoint: .bottom)
                 )
                 .frame(width: 88, height: 88)
-                .shadow(
-                    color: isHolding ? .red.opacity(0.4) : .cyan.opacity(0.3),
-                    radius: 20,
-                    y: 8
-                )
+                .shadow(color: isHolding ? .red.opacity(0.4) : .cyan.opacity(0.3), radius: 20, y: 8)
                 .overlay(
                     Image(systemName: isHolding ? "waveform" : "mic.fill")
                         .font(.system(size: 32, weight: .medium))
@@ -237,85 +246,104 @@ struct ChatView: View {
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
                     if !isHolding {
-                        startTalking()
+                        startPTT()
                     }
                 }
                 .onEnded { _ in
-                    stopTalking()
+                    stopPTT()
                 }
         )
         .disabled(!modelLoaded || !audio.isAuthorized || llm.state == .generating || audio.state == .speaking)
         .opacity(modelLoaded && audio.isAuthorized ? 1 : 0.4)
     }
 
+    private var handsFreeButton: some View {
+        let isActive = audio.state == .listening
+
+        return Button {
+            if isActive {
+                audio.stopListening()
+            } else {
+                // If speaking, barge-in first
+                if audio.state == .speaking {
+                    audio.bargeIn()
+                } else {
+                    audio.startListening()
+                }
+            }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } label: {
+            Circle()
+                .fill(
+                    isActive
+                    ? LinearGradient(colors: [.red.opacity(0.9), .orange.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                    : LinearGradient(colors: [.green.opacity(0.8), .cyan.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: 88, height: 88)
+                .shadow(color: isActive ? .red.opacity(0.4) : .green.opacity(0.3), radius: 20, y: 8)
+                .overlay(
+                    Image(systemName: isActive ? "stop.fill" : "ear.fill")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundColor(.white)
+                )
+                .scaleEffect(isActive ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isActive)
+        }
+        .disabled(!modelLoaded || !audio.isAuthorized || llm.state == .generating)
+        .opacity(modelLoaded && audio.isAuthorized ? 1 : 0.4)
+    }
+
     // MARK: - Actions
 
-    private func startTalking() {
+    private func startPTT() {
         isHolding = true
         audio.stopSpeaking()
         audio.startListening()
-
-        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-        impactFeedback.impactOccurred()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
-    private func stopTalking() {
+    private func stopPTT() {
         isHolding = false
         audio.stopListening()
-
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
         let userText = audio.recognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userText.isEmpty else { return }
 
-        messages.append(ChatMessage(role: .user, content: userText))
+        handleUserUtterance(userText)
+    }
+
+    private func handleUserUtterance(_ text: String) {
+        conversationManager.addMessage(role: "user", content: text)
 
         Task {
-            let response = await llm.generate(prompt: userText)
-            messages.append(ChatMessage(role: .assistant, content: response))
+            let response = await llm.generate(prompt: text)
+            conversationManager.addMessage(role: "assistant", content: response)
             audio.speak(response)
         }
     }
 }
 
-// MARK: - Chat Message Model
-
-struct ChatMessage: Identifiable, Equatable {
-    let id = UUID()
-    let role: Role
-    let content: String
-    let timestamp = Date()
-
-    enum Role {
-        case user
-        case assistant
-    }
-}
-
-// MARK: - Message Bubble
+// MARK: - Message Bubble (uses SwiftData Message)
 
 struct MessageBubble: View {
-    let message: ChatMessage
+    let message: Message
 
     var body: some View {
         HStack {
-            if message.role == .user { Spacer(minLength: 60) }
+            if message.role == "user" { Spacer(minLength: 60) }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
                 Text(message.content)
                     .font(.body)
                     .foregroundColor(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(
-                        message.role == .user
+                        message.role == "user"
                         ? AnyShapeStyle(
                             LinearGradient(
-                                colors: [
-                                    Color.blue.opacity(0.5),
-                                    Color.cyan.opacity(0.3)
-                                ],
+                                colors: [Color.blue.opacity(0.5), Color.cyan.opacity(0.3)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -330,7 +358,7 @@ struct MessageBubble: View {
                     .padding(.horizontal, 8)
             }
 
-            if message.role == .assistant { Spacer(minLength: 60) }
+            if message.role == "assistant" { Spacer(minLength: 60) }
         }
     }
 }

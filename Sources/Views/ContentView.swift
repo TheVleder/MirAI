@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Root router view: shows DownloadView if model isn't ready, ChatView otherwise.
+/// Root router: Download → ConversationList → Chat
 struct ContentView: View {
 
     @Environment(ModelDownloader.self) private var downloader
@@ -8,7 +8,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if downloader.isModelReady {
-                ChatView()
+                ConversationListView()
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             } else {
                 DownloadView()

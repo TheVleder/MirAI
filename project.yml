@@ -39,6 +39,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_CFBundleDisplayName: "MirAI"
+        INFOPLIST_KEY_UIBackgroundModes: "audio"
     dependencies:
       - package: mlx-swift-lm
         product: MLXLLM
