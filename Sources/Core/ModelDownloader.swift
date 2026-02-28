@@ -13,6 +13,15 @@ final class ModelDownloader {
 
     static let defaultModelID = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
 
+    /// Recommended models optimized for iPhone (sorted by performance)
+    static let recommendedModels: [(id: String, name: String, size: String, description: String)] = [
+        ("mlx-community/Qwen2.5-1.5B-Instruct-4bit", "Qwen 2.5 1.5B", "~1 GB", "Default — great balance of speed and quality"),
+        ("mlx-community/Llama-3.2-1B-Instruct-4bit", "Llama 3.2 1B", "~0.8 GB", "Meta's compact model — fast and reliable"),
+        ("mlx-community/Qwen3-1.7B-4bit", "Qwen 3 1.7B", "~1.2 GB", "Latest Qwen — best quality at this size"),
+        ("mlx-community/gemma-3-1b-it-4bit", "Gemma 3 1B", "~0.7 GB", "Google's efficient model — lightweight"),
+        ("mlx-community/SmolLM2-1.7B-Instruct-4bit", "SmolLM2 1.7B", "~1.1 GB", "HuggingFace's own — surprisingly capable"),
+    ]
+
     // MARK: - State
 
     enum DownloadState: Equatable {

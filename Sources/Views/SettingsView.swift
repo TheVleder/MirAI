@@ -370,9 +370,59 @@ struct SettingsView: View {
                 infoRow("Status", value: stateLabel)
                 infoRow("Storage", value: modelSizeString)
 
-                // Model ID input
+                // Recommended models picker
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recommended Models")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.4))
+
+                    ForEach(ModelDownloader.recommendedModels, id: \.id) { model in
+                        let isActive = downloader.modelID == model.id
+                        let isDownloaded = downloader.downloadedModelID == model.id
+
+                        Button {
+                            downloader.modelID = model.id
+                        } label: {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(model.name)
+                                            .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                            .foregroundColor(.white)
+                                        if isDownloaded {
+                                            Text("✓")
+                                                .font(.caption2)
+                                                .foregroundColor(.green)
+                                        }
+                                    }
+                                    Text("\(model.size) · \(model.description)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                if isActive {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.cyan)
+                                }
+                            }
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(isActive ? Color.cyan.opacity(0.08) : Color.white.opacity(0.03))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(isActive ? Color.cyan.opacity(0.3) : Color.clear, lineWidth: 1)
+                            )
+                        }
+                    }
+                }
+                .padding(.top, 4)
+
+                // Custom Model ID input
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Model ID")
+                    Text("Or enter custom Model ID")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.4))
 
