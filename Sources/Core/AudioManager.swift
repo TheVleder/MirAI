@@ -64,11 +64,13 @@ final class AudioManager: NSObject {
     private let vadSilenceThreshold: TimeInterval = 1.8
     private let vadSpeechThreshold: Float = -35.0
 
-    // Barge-in monitoring
+    // Barge-in monitoring via AVAudioRecorder metering
     private var isMonitoringForBargeIn = false
     private var bargeInSpeechFrames: Int = 0
-    private let bargeInFramesNeeded: Int = 8 // ~0.4s sustained speech
-    private let bargeInThreshold: Float = -35.0 // With AEC, only real speech passes
+    private let bargeInFramesNeeded: Int = 6 // ~0.3s sustained speech at 20Hz poll
+    private let bargeInThreshold: Float = -30.0 // dB threshold for voice detection
+    private var bargeInRecorder: AVAudioRecorder?
+    private var bargeInTimer: Timer?
 
     // Sentence queue for streaming TTS
     private var sentenceQueue: [String] = []
@@ -180,13 +182,12 @@ final class AudioManager: NSObject {
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
 
-    /// Unified audio config: .voiceChat gives AEC for both TTS and mic monitoring.
-    /// Using one mode prevents volume fluctuation from mode switching.
+    /// Unified audio config for TTS playback
     private func configureAudioForVoice() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(
             .playAndRecord,
-            mode: .voiceChat,
+            mode: .default,
             options: [.defaultToSpeaker, .allowBluetooth, .duckOthers]
         )
         try session.setActive(true, options: .notifyOthersOnDeactivation)
@@ -227,35 +228,42 @@ final class AudioManager: NSObject {
         }
     }
 
-    /// Start a lightweight mic tap to detect user voice during TTS.
-    /// Uses same .voiceChat session — AEC filters out speaker output.
+    /// Start monitoring mic levels during TTS using AVAudioRecorder metering.
+    /// AVAudioRecorder coexists with AVSpeechSynthesizer — no conflicts.
     private func startMonitorTap() {
         stopMonitorTap()
-
-        // Audio session already configured as .voiceChat by speakUtterance
-        // No need to reconfigure — avoids volume fluctuation
 
         bargeInSpeechFrames = 0
         isMonitoringForBargeIn = true
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { return }
+        // Create recorder that writes to /dev/null — only for metering
+        let url = URL(fileURLWithPath: "/dev/null")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatAppleLossless),
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.min.rawValue
+        ]
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameLength = Int(buffer.frameLength)
-            guard frameLength > 0 else { return }
+        do {
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
+            recorder.record()
+            bargeInRecorder = recorder
+        } catch {
+            return
+        }
 
-            var sum: Float = 0
-            for i in 0..<frameLength { sum += channelData[i] * channelData[i] }
-            let rms = sqrt(sum / Float(frameLength))
-            let power = 20 * log10(max(rms, 0.000001))
-
+        // Poll metering at 20Hz
+        bargeInTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self = self, self.state == .speaking, self.isMonitoringForBargeIn else { return }
+                guard let self = self, self.state == .speaking, self.isMonitoringForBargeIn else {
+                    return
+                }
 
-                // Use more sensitive threshold for barge-in
+                self.bargeInRecorder?.updateMeters()
+                let power = self.bargeInRecorder?.averagePower(forChannel: 0) ?? -160
+
                 if power > self.bargeInThreshold {
                     self.bargeInSpeechFrames += 1
                 } else {
@@ -263,15 +271,15 @@ final class AudioManager: NSObject {
                 }
 
                 if self.bargeInSpeechFrames >= self.bargeInFramesNeeded {
+                    // Barge-in triggered!
                     self.bargeInSpeechFrames = 0
                     self.isMonitoringForBargeIn = false
                     self.synthesizer.stopSpeaking(at: .immediate)
                     self.sentenceQueue.removeAll()
                     self.isSpeakingFromQueue = false
-                    self.removeTapIfNeeded()
-                    if self.audioEngine.isRunning { self.audioEngine.stop() }
+                    self.stopMonitorTap()
                     self.state = .idle
-                    // Brief delay so audio engine resets before listening
+                    // Brief delay then start listening
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 300_000_000)
                         self.onAutoBargeIn?()
@@ -279,21 +287,15 @@ final class AudioManager: NSObject {
                 }
             }
         }
-        hasTapInstalled = true
-
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
-        } catch {
-            stopMonitorTap()
-        }
     }
 
     private func stopMonitorTap() {
         isMonitoringForBargeIn = false
         bargeInSpeechFrames = 0
-        removeTapIfNeeded()
-        if audioEngine.isRunning { audioEngine.stop() }
+        bargeInTimer?.invalidate()
+        bargeInTimer = nil
+        bargeInRecorder?.stop()
+        bargeInRecorder = nil
     }
 
     // MARK: - STT
