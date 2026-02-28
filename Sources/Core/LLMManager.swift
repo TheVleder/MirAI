@@ -58,7 +58,7 @@ final class LLMManager {
             loadedModelName = modelID.components(separatedBy: "/").last ?? modelID
 
             // Create a chat session for multi-turn conversation
-            chatSession = ChatSession(container, systemPrompt: systemPrompt)
+            chatSession = ChatSession(container, instructions: systemPrompt)
 
             state = .ready
         } catch {
@@ -94,7 +94,7 @@ final class LLMManager {
     /// Reset the conversation history
     func resetConversation() {
         guard let container = modelContainer else { return }
-        chatSession = ChatSession(container, systemPrompt: systemPrompt)
+        chatSession = ChatSession(container, instructions: systemPrompt)
         currentResponse = ""
     }
 

@@ -212,10 +212,10 @@ final class AudioManager: NSObject {
 // MARK: - TTS Delegate
 
 /// Delegate to track when speech synthesis finishes
-private class TTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
-    let onFinish: () -> Void
+private final class TTSDelegate: NSObject, AVSpeechSynthesizerDelegate, Sendable {
+    let onFinish: @Sendable () -> Void
 
-    init(onFinish: @escaping () -> Void) {
+    init(onFinish: @escaping @Sendable () -> Void) {
         self.onFinish = onFinish
     }
 
