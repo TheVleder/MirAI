@@ -169,7 +169,7 @@ final class LLMManager {
 
     // MARK: - System Prompt
 
-    private func buildSystemPrompt() -> String {
+    private func buildSystemPrompt(memoryContext: String = "") -> String {
         """
         \(activePersonality.systemPrompt)
 
@@ -178,20 +178,22 @@ final class LLMManager {
         - ALWAYS stay in character as \(activePersonality.name).
         - Remember the ENTIRE conversation history and refer back to it when relevant.
         - Keep responses concise (1-4 sentences) unless the user asks for more detail.
+        - If the user tells you something personal (name, preferences, habits), note it in your responses.
+        \(memoryContext)
         """
     }
 
     // MARK: - Conversation Management
 
-    func resetConversation() {
+    func resetConversation(memoryContext: String = "") {
         guard let container = modelContainer else { return }
-        chatSession = ChatSession(container, instructions: buildSystemPrompt())
+        chatSession = ChatSession(container, instructions: buildSystemPrompt(memoryContext: memoryContext))
         currentResponse = ""
     }
 
-    func startSession(withHistory messages: [(role: String, content: String)] = []) {
+    func startSession(withHistory messages: [(role: String, content: String)] = [], memoryContext: String = "") {
         guard let container = modelContainer else { return }
-        chatSession = ChatSession(container, instructions: buildSystemPrompt())
+        chatSession = ChatSession(container, instructions: buildSystemPrompt(memoryContext: memoryContext))
         currentResponse = ""
 
         if !messages.isEmpty {

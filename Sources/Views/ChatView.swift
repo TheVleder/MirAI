@@ -64,12 +64,12 @@ struct ChatView: View {
                 modelLoaded = true
             }
 
-            // Restore conversation context
+            // Restore conversation context with memory
             if modelLoaded {
                 let history = conversationManager.currentMessages.map {
                     (role: $0.role, content: $0.content)
                 }
-                llm.startSession(withHistory: history)
+                llm.startSession(withHistory: history, memoryContext: conversationManager.memoryContext())
             }
 
             // Auto-start listening if launched from Siri
@@ -162,6 +162,8 @@ struct ChatView: View {
 
             // End conversation — prominent button
             Button {
+                audio.stopListening()
+                audio.stopSpeaking()
                 audio.cleanup()
                 conversationManager.activeConversation = nil
                 dismiss()
@@ -217,88 +219,50 @@ struct ChatView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer().frame(height: 60)
+            Spacer().frame(height: 30)
 
             Text(llm.activePersonality.emoji)
                 .font(.system(size: 48))
 
-            Text(audio.listeningMode == .pushToTalk
-                 ? "Hold the button to speak"
-                 : "Tap the mic to start listening")
-                .font(.subheadline)
-                .foregroundColor(.white.opacity(0.3))
+            Text("Start a conversation")
+                .font(.system(.headline, design: .rounded))
+                .foregroundColor(.white.opacity(0.5))
 
-            Spacer().frame(height: 60)
+            // Quick-start templates
+            let templates = conversationTemplates
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(templates, id: \.self) { template in
+                    Button {
+                        handleUserUtterance(template)
+                    } label: {
+                        Text(template)
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .padding(10)
+                            .background(Color.white.opacity(0.05))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, 4)
+
+            Spacer().frame(height: 20)
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - State Indicator
+    // MARK: - Voice Orb
 
     private var stateIndicator: some View {
-        HStack(spacing: 10) {
-            Group {
-                switch audio.state {
-                case .listening:
-                    audioLevelBar
-                    Text("Listening…")
-                        .foregroundColor(.red.opacity(0.9))
-                case .processing:
-                    PulsingDot(color: .orange)
-                    Text("Processing…")
-                        .foregroundColor(.orange.opacity(0.9))
-                case .speaking:
-                    PulsingDot(color: .cyan)
-                    Text("Speaking…")
-                        .foregroundColor(.cyan.opacity(0.9))
-
-                    // Barge-in hint
-                    Button {
-                        audio.bargeIn()
-                    } label: {
-                        Text("Interrupt")
-                            .font(.system(.caption2, weight: .semibold))
-                            .foregroundColor(.red)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.red.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-                case .idle:
-                    if llm.state == .generating {
-                        PulsingDot(color: .purple)
-                        Text("Thinking…")
-                            .foregroundColor(.purple.opacity(0.9))
-                    } else if llm.state == .loading {
-                        ProgressView()
-                            .tint(.white.opacity(0.5))
-                            .scaleEffect(0.7)
-                        Text("Loading…")
-                            .foregroundColor(.white.opacity(0.5))
-                    } else {
-                        Text(audio.listeningMode == .handsFree ? "🎙 Hands-Free" : "Ready")
-                            .foregroundColor(.white.opacity(0.3))
-                    }
-                }
-            }
-            .font(.system(.subheadline, design: .rounded, weight: .medium))
-        }
-        .frame(height: 32)
-        .animation(.easeInOut(duration: 0.3), value: audio.state)
-        .animation(.easeInOut(duration: 0.3), value: llm.state)
-        .padding(.vertical, 8)
-    }
-
-    /// Audio level visualization bar
-    private var audioLevelBar: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<5) { i in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.red.opacity(Double(i) * 0.2 < Double(audio.audioLevel) ? 0.9 : 0.2))
-                    .frame(width: 3, height: CGFloat(4 + i * 3))
-            }
-        }
-        .animation(.easeOut(duration: 0.1), value: audio.audioLevel)
+        VoiceOrb(audioState: audio.state, audioLevel: audio.audioLevel)
+            .padding(.vertical, 4)
     }
 
     // MARK: - Text Input Bar
@@ -517,6 +481,29 @@ struct ChatView: View {
         }
         return text
     }
+
+    // MARK: - Conversation Templates
+
+    private var conversationTemplates: [String] {
+        switch llm.activePersonality.id {
+        case "chef":
+            return ["What should I cook tonight?", "Give me a quick pasta recipe", "What spices go with chicken?", "Plan a dinner for 4"]
+        case "scientist":
+            return ["Explain quantum physics simply", "Why is the sky blue?", "What is dark matter?", "How does DNA work?"]
+        case "coach":
+            return ["Help me set a fitness goal", "I need motivation today", "Create a morning routine", "How do I build a habit?"]
+        case "philosopher":
+            return ["What is the meaning of life?", "Is free will real?", "What makes us human?", "Should AI have rights?"]
+        case "poet":
+            return ["Write me a short poem", "Describe the sunset", "What is beauty?", "Tell me about love"]
+        case "politician":
+            return ["Explain climate policy", "Pros and cons of AI regulation", "What makes a good leader?", "Debate immigration"]
+        case "darkhumor":
+            return ["Tell me a dark joke", "Roast me gently", "What's the worst advice?", "Make me laugh"]
+        default:
+            return ["How's your day going?", "Tell me something interesting", "I need advice about...", "Let's play 20 questions"]
+        }
+    }
 }
 
 // MARK: - Share Sheet (UIKit Wrapper)
@@ -575,7 +562,8 @@ struct MessageBubble: View {
                         }
                     }
                 } else {
-                    Text(message.content)
+                    // Simple markdown rendering
+                    Text(markdownAttributed(message.content))
                         .font(.body)
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
@@ -617,9 +605,15 @@ struct MessageBubble: View {
             if message.role == "assistant" { Spacer(minLength: 60) }
         }
     }
-}
 
-// MARK: - Pulsing Dot
+    /// Simple markdown to AttributedString (bold, code, italic)
+    private func markdownAttributed(_ text: String) -> AttributedString {
+        if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            return attributed
+        }
+        return AttributedString(text)
+    }
+}// MARK: - Pulsing Dot
 
 struct PulsingDot: View {
     let color: Color

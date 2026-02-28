@@ -90,4 +90,39 @@ final class ConversationManager {
     private func save() {
         try? modelContext?.save()
     }
+
+    // MARK: - User Memory
+
+    /// Save a memory fact
+    func saveMemory(key: String, value: String) {
+        guard let context = modelContext else { return }
+        // Update existing or create new
+        let descriptor = FetchDescriptor<UserMemory>()
+        if let existing = (try? context.fetch(descriptor))?.first(where: { $0.key == key }) {
+            existing.value = value
+        } else {
+            context.insert(UserMemory(key: key, value: value))
+        }
+        save()
+    }
+
+    /// Fetch all memories
+    func fetchAllMemories() -> [UserMemory] {
+        guard let context = modelContext else { return [] }
+        return (try? context.fetch(FetchDescriptor<UserMemory>())) ?? []
+    }
+
+    /// Delete a memory
+    func deleteMemory(_ memory: UserMemory) {
+        modelContext?.delete(memory)
+        save()
+    }
+
+    /// Build memory context string for LLM system prompt
+    func memoryContext() -> String {
+        let memories = fetchAllMemories()
+        guard !memories.isEmpty else { return "" }
+        let facts = memories.map { "- \($0.key): \($0.value)" }.joined(separator: "\n")
+        return "\n\nThings you remember about the user:\n\(facts)"
+    }
 }

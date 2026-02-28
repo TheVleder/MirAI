@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var editingPersona: CustomPersonality?
     @State private var modelSizeString: String = "Calculating…"
     @State private var showDeleteModelConfirm = false
+    @State private var previewSynthesizer: AVSpeechSynthesizer?
 
     var body: some View {
         NavigationStack {
@@ -30,6 +31,8 @@ struct SettingsView: View {
                         voiceSection
                         speechSpeedSection
                         listeningModeSection
+                        notificationSection
+                        memorySection
                         modelSection
                     }
                     .padding(.horizontal, 20)
@@ -309,9 +312,18 @@ struct SettingsView: View {
                     .padding(.vertical, 2)
                     .background(qualityColor(quality).opacity(0.15))
                     .clipShape(Capsule())
+
+                // Preview button
+                Button {
+                    previewVoice(voice)
+                } label: {
+                    Image(systemName: "play.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.5))
+                }
             }
             .frame(width: 90)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(isSelected ? Color.cyan.opacity(0.12) : Color.white.opacity(0.05))
@@ -321,6 +333,24 @@ struct SettingsView: View {
                     .stroke(isSelected ? Color.cyan.opacity(0.6) : Color.clear, lineWidth: 1.5)
             )
         }
+    }
+
+    /// Preview a voice with a short sample
+    private func previewVoice(_ voice: AVSpeechSynthesisVoice) {
+        let samples: [String: String] = [
+            "en": "Hello, I am your AI assistant.",
+            "es": "Hola, soy tu asistente de voz.",
+            "ru": "Привет, я ваш голосовой помощник."
+        ]
+        let lang = String(voice.language.prefix(2))
+        let sample = samples[lang] ?? samples["en"]!
+        let utterance = AVSpeechUtterance(string: sample)
+        utterance.voice = voice
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        let synth = AVSpeechSynthesizer()
+        synth.speak(utterance)
+        // Keep reference so it doesn't get deallocated
+        previewSynthesizer = synth
     }
 
     // MARK: - Speech Speed Section
@@ -392,6 +422,81 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundColor(.white.opacity(0.35))
                     .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    // MARK: - Notification Section
+
+    private var notificationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Notifications", icon: "bell.badge")
+
+            Toggle(isOn: Binding(
+                get: { NotificationManager.shared.isEnabled },
+                set: { NotificationManager.shared.setEnabled($0) }
+            )) {
+                HStack {
+                    Image(systemName: "bell.fill")
+                        .foregroundColor(.cyan)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Daily Reminder")
+                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                            .foregroundColor(.white)
+                        Text("Get a daily nudge at 9 AM")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                }
+            }
+            .tint(.cyan)
+            .padding(12)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    // MARK: - Memory Section
+
+    @Environment(ConversationManager.self) private var conversationManagerForMemory
+
+    private var memorySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Memory", icon: "brain.head.profile")
+
+            let memories = conversationManagerForMemory.fetchAllMemories()
+            if memories.isEmpty {
+                Text("The AI will learn facts about you as you chat.")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.4))
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                ForEach(memories, id: \.key) { memory in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(memory.key)
+                                .font(.system(.caption, design: .rounded, weight: .semibold))
+                                .foregroundColor(.cyan)
+                            Text(memory.value)
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+                        Spacer()
+                        Button {
+                            conversationManagerForMemory.deleteMemory(memory)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.caption2)
+                                .foregroundColor(.red.opacity(0.6))
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
             }
         }
     }

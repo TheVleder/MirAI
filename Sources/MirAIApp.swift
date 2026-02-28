@@ -19,12 +19,12 @@ struct MirAIApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear {
                     if let context = try? ModelContext(
-                        ModelContainer(for: Conversation.self, Message.self)
+                        ModelContainer(for: Conversation.self, Message.self, UserMemory.self)
                     ) {
                         conversationManager.setContext(context)
                     }
                 }
         }
-        .modelContainer(for: [Conversation.self, Message.self, CustomPersonality.self])
+        .modelContainer(for: [Conversation.self, Message.self, CustomPersonality.self, UserMemory.self])
     }
 }
