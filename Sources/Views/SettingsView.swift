@@ -27,6 +27,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
+                        languageSection
                         personalitySection
                         voiceSection
                         speechSpeedSection
@@ -77,6 +78,45 @@ struct SettingsView: View {
             sortBy: [SortDescriptor(\.createdAt)]
         )
         customPersonas = (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - Language Section
+
+    private var languageSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Language", icon: "globe")
+
+            HStack(spacing: 10) {
+                ForEach(AppLanguage.allCases, id: \.self) { language in
+                    let isSelected = llm.activeLanguage == language
+                    Button {
+                        withAnimation(.spring(response: 0.3)) {
+                            llm.activeLanguage = language
+                            audio.setLanguage(language)
+                            availableVoices = AudioManager.availableVoices(for: language.rawValue)
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(language.flag)
+                                .font(.title)
+                            Text(language.name)
+                                .font(.system(.caption2, design: .rounded, weight: .medium))
+                                .foregroundColor(isSelected ? .white : .white.opacity(0.5))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(isSelected ? Color.cyan.opacity(0.12) : Color.white.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(isSelected ? Color.cyan.opacity(0.5) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Personality Section
