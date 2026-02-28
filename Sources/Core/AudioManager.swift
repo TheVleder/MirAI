@@ -180,25 +180,14 @@ final class AudioManager: NSObject {
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
 
-    /// Configure for TTS playback (default mode — good audio quality)
-    private func configureForTTSPlayback() throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(
-            .playAndRecord,
-            mode: .default,
-            options: [.defaultToSpeaker, .mixWithOthers, .duckOthers, .allowBluetooth]
-        )
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
-    }
-
-    /// Configure for barge-in monitoring (.voiceChat = hardware echo cancellation)
-    /// AEC filters out speaker output from mic — only real user speech passes through
-    private func configureForBargeInMonitor() throws {
+    /// Unified audio config: .voiceChat gives AEC for both TTS and mic monitoring.
+    /// Using one mode prevents volume fluctuation from mode switching.
+    private func configureAudioForVoice() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
-            options: [.defaultToSpeaker, .allowBluetooth]
+            options: [.defaultToSpeaker, .allowBluetooth, .duckOthers]
         )
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
@@ -239,13 +228,12 @@ final class AudioManager: NSObject {
     }
 
     /// Start a lightweight mic tap to detect user voice during TTS.
-    /// Uses .voiceChat mode for hardware echo cancellation — filters out speaker output.
+    /// Uses same .voiceChat session — AEC filters out speaker output.
     private func startMonitorTap() {
         stopMonitorTap()
 
-        do {
-            try configureForBargeInMonitor()
-        } catch { return }
+        // Audio session already configured as .voiceChat by speakUtterance
+        // No need to reconfigure — avoids volume fluctuation
 
         bargeInSpeechFrames = 0
         isMonitoringForBargeIn = true
@@ -283,7 +271,11 @@ final class AudioManager: NSObject {
                     self.removeTapIfNeeded()
                     if self.audioEngine.isRunning { self.audioEngine.stop() }
                     self.state = .idle
-                    self.onAutoBargeIn?()
+                    // Brief delay so audio engine resets before listening
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        self.onAutoBargeIn?()
+                    }
                 }
             }
         }
@@ -484,8 +476,8 @@ final class AudioManager: NSObject {
 
     /// Internal: create and speak an utterance
     private func speakUtterance(_ text: String) {
-        // Use .default mode for good TTS audio quality
-        try? configureForTTSPlayback()
+        // Use .voiceChat mode for AEC — prevents volume fluctuation
+        try? configureAudioForVoice()
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * speechRate
