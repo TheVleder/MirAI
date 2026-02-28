@@ -44,5 +44,5 @@ targets:
         product: MLXLLM
       - package: mlx-swift-lm
         product: MLXLMCommon
-      - framework: Speech.framework
-      - framework: AVFoundation.framework
+      - sdk: Speech.framework
+      - sdk: AVFoundation.framework
