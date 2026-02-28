@@ -218,8 +218,18 @@ struct SettingsView: View {
     // MARK: - Voice Section
 
     private var voiceSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Voice", icon: "speaker.wave.3")
+        let premium = availableVoices.filter { $0.quality == .premium }
+        let enhanced = availableVoices.filter { $0.quality == .enhanced }
+        let standard = availableVoices.filter { $0.quality != .premium && $0.quality != .enhanced }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                sectionHeader("Voice", icon: "speaker.wave.3")
+                Spacer()
+                Text("\(availableVoices.count) voices")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.3))
+            }
 
             if availableVoices.isEmpty {
                 Text("No voices available for \(llm.activeLanguage.name)")
@@ -227,19 +237,48 @@ struct SettingsView: View {
                     .foregroundColor(.white.opacity(0.4))
                     .padding()
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(availableVoices.prefix(15), id: \.identifier) { voice in
-                            voiceCard(voice)
-                        }
-                    }
-                    .padding(.horizontal, 2)
+                // Premium voices (Siri, downloaded)
+                if !premium.isEmpty {
+                    voiceGroup("Premium (Siri)", voices: premium, color: .yellow)
                 }
 
-                Text("Tip: Download better voices in iPhone Settings → Accessibility → Spoken Content → Voices → \(llm.activeLanguage.name)")
+                // Enhanced voices
+                if !enhanced.isEmpty {
+                    voiceGroup("Enhanced", voices: enhanced, color: .green)
+                }
+
+                // Standard voices
+                if !standard.isEmpty {
+                    voiceGroup("Default", voices: standard, color: .white.opacity(0.5))
+                }
+
+                Text("Download better voices: Settings → Accessibility → Spoken Content → Voices → \(llm.activeLanguage.name)")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.3))
                     .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private func voiceGroup(_ title: String, voices: [AVSpeechSynthesisVoice], color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(color)
+            }
+            .padding(.leading, 4)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(voices, id: \.identifier) { voice in
+                        voiceCard(voice)
+                    }
+                }
+                .padding(.horizontal, 2)
             }
         }
     }
