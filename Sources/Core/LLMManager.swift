@@ -99,7 +99,13 @@ final class LLMManager {
             state = .ready
             return response
         } catch {
-            let errorMsg = "Generation error: \(error.localizedDescription)"
+            let desc = error.localizedDescription.lowercased()
+            let errorMsg: String
+            if desc.contains("memory") || desc.contains("malloc") || desc.contains("allocation") {
+                errorMsg = "⚠️ Out of memory. Close other apps and try again, or use a smaller model."
+            } else {
+                errorMsg = "Error: \(error.localizedDescription)"
+            }
             state = .error(message: errorMsg)
             currentResponse = errorMsg
             return errorMsg

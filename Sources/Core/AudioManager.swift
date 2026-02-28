@@ -36,6 +36,11 @@ final class AudioManager: NSObject {
         didSet { UserDefaults.standard.set(selectedVoiceID, forKey: "selectedVoiceID") }
     }
 
+    /// TTS speech rate multiplier (0.8 to 1.5)
+    var speechRate: Float = 1.0 {
+        didSet { UserDefaults.standard.set(speechRate, forKey: "speechRate") }
+    }
+
     /// Callback when hands-free VAD detects end of speech
     var onHandsFreeUtteranceComplete: ((String) -> Void)?
 
@@ -74,6 +79,7 @@ final class AudioManager: NSObject {
             listeningMode = ListeningMode(rawValue: mode) ?? .pushToTalk
         }
         selectedVoiceID = UserDefaults.standard.string(forKey: "selectedVoiceID")
+        speechRate = UserDefaults.standard.object(forKey: "speechRate") as? Float ?? 1.0
 
         // Set up language
         let lang = AppLanguage.saved()
@@ -162,7 +168,7 @@ final class AudioManager: NSObject {
         try session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
-            options: [.defaultToSpeaker, .mixWithOthers]
+            options: [.defaultToSpeaker, .mixWithOthers, .duckOthers]
         )
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
@@ -432,7 +438,7 @@ final class AudioManager: NSObject {
         state = .speaking
 
         let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * speechRate
         utterance.pitchMultiplier = 1.05
         utterance.volume = 1.0
         utterance.preUtteranceDelay = 0.05

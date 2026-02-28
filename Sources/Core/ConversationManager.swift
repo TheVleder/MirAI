@@ -76,6 +76,15 @@ final class ConversationManager {
         activeConversation?.sortedMessages ?? []
     }
 
+    /// Delete a single message
+    func deleteMessage(_ message: Message) {
+        if let conversation = message.conversation {
+            conversation.messages.removeAll { $0.id == message.id }
+        }
+        modelContext?.delete(message)
+        save()
+    }
+
     // MARK: - Persistence
 
     private func save() {

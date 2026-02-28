@@ -10,6 +10,8 @@ struct ChatView: View {
 
     @State private var isHolding = false
     @State private var modelLoaded = false
+    @State private var showErrorAlert = false
+    @State private var errorMessage = ""
 
     var body: some View {
         ZStack {
@@ -27,6 +29,11 @@ struct ChatView: View {
         }
         .navigationBarBackButtonHidden(false)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .alert("Error", isPresented: $showErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
         .task {
             await audio.requestPermissions()
             if let modelID = downloader.downloadedModelID, llm.state != .ready {
@@ -124,8 +131,10 @@ struct ChatView: View {
                     }
 
                     ForEach(messages) { message in
-                        MessageBubble(message: message)
-                            .id(message.id)
+                        MessageBubble(message: message) { editedText in
+                            handleEditedMessage(message, newText: editedText)
+                        }
+                        .id(message.id)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -357,6 +366,30 @@ struct ChatView: View {
         Task {
             let response = await llm.generate(prompt: text)
             conversationManager.addMessage(role: "assistant", content: response)
+            if response.starts(with: "⚠️") || response.starts(with: "Error:") {
+                errorMessage = response
+                showErrorAlert = true
+            } else {
+                audio.speak(response)
+            }
+        }
+    }
+    private func handleEditedMessage(_ message: Message, newText: String) {
+        // Update the user message
+        message.content = newText
+
+        // Find and remove the AI response that followed this message
+        let messages = conversationManager.currentMessages
+        if let idx = messages.firstIndex(where: { $0.id == message.id }),
+           idx + 1 < messages.count,
+           messages[idx + 1].role == "assistant" {
+            conversationManager.deleteMessage(messages[idx + 1])
+        }
+
+        // Resend to LLM
+        Task {
+            let response = await llm.generate(prompt: newText)
+            conversationManager.addMessage(role: "assistant", content: response)
             audio.speak(response)
         }
     }
@@ -366,34 +399,85 @@ struct ChatView: View {
 
 struct MessageBubble: View {
     let message: Message
+    var onEdit: ((String) -> Void)?
+
+    @State private var isEditing = false
+    @State private var editText = ""
 
     var body: some View {
         HStack {
             if message.role == "user" { Spacer(minLength: 60) }
 
             VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
-                Text(message.content)
-                    .font(.body)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        message.role == "user"
-                        ? AnyShapeStyle(
-                            LinearGradient(
-                                colors: [Color.blue.opacity(0.5), Color.cyan.opacity(0.3)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        : AnyShapeStyle(Color.white.opacity(0.08))
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                if isEditing {
+                    // Inline editor
+                    HStack(spacing: 8) {
+                        TextField("Edit message", text: $editText, axis: .vertical)
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Color.blue.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                Text(message.timestamp, style: .time)
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.25))
+                        Button {
+                            let trimmed = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty {
+                                onEdit?(trimmed)
+                            }
+                            isEditing = false
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.cyan)
+                        }
+
+                        Button {
+                            isEditing = false
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
+                } else {
+                    Text(message.content)
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            message.role == "user"
+                            ? AnyShapeStyle(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.5), Color.cyan.opacity(0.3)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            : AnyShapeStyle(Color.white.opacity(0.08))
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .onTapGesture {
+                            if message.role == "user" {
+                                editText = message.content
+                                isEditing = true
+                            }
+                        }
+
+                    HStack(spacing: 4) {
+                        Text(message.timestamp, style: .time)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.25))
+
+                        if message.role == "user" {
+                            Text("· tap to edit")
+                                .font(.system(size: 9))
+                                .foregroundColor(.white.opacity(0.15))
+                        }
+                    }
                     .padding(.horizontal, 8)
+                }
             }
 
             if message.role == "assistant" { Spacer(minLength: 60) }

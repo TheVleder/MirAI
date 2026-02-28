@@ -25,6 +25,6 @@ struct MirAIApp: App {
                     }
                 }
         }
-        .modelContainer(for: [Conversation.self, Message.self])
+        .modelContainer(for: [Conversation.self, Message.self, CustomPersonality.self])
     }
 }
