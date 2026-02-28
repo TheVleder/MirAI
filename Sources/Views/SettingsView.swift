@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 /// Settings screen: personality picker, voice selector, listening mode, model info.
 struct SettingsView: View {

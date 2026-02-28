@@ -124,7 +124,7 @@ final class AudioManager: NSObject {
         try session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
-            options: [.defaultToSpeaker, .mixWithOthers, .allowBluetooth]
+            options: [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP]
         )
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
