@@ -38,7 +38,10 @@ struct SettingsView: View {
                 }
             }
             .onAppear {
-                availableVoices = AudioManager.availableVoices()
+                availableVoices = AudioManager.availableVoices(for: llm.activeLanguage.rawValue)
+            }
+            .onChange(of: llm.activeLanguage) { _, newLang in
+                availableVoices = AudioManager.availableVoices(for: newLang.rawValue)
             }
         }
     }
@@ -106,19 +109,24 @@ struct SettingsView: View {
             sectionHeader("Voice", icon: "speaker.wave.3")
 
             if availableVoices.isEmpty {
-                Text("No voices available")
+                Text("No voices available for \(llm.activeLanguage.name)")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.4))
                     .padding()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(availableVoices.prefix(12), id: \.identifier) { voice in
+                        ForEach(availableVoices.prefix(15), id: \.identifier) { voice in
                             voiceCard(voice)
                         }
                     }
                     .padding(.horizontal, 2)
                 }
+
+                Text("Tip: Download better voices in iPhone Settings → Accessibility → Spoken Content → Voices → \(llm.activeLanguage.name)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+                    .padding(.horizontal, 4)
             }
         }
     }
