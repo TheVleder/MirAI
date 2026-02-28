@@ -3,8 +3,8 @@ import Observation
 import AVFoundation
 import Speech
 
-/// Manages the full audio pipeline: mic capture, on-device STT, TTS,
-/// with barge-in, VAD, continuous listening, and voice selection.
+/// Full audio pipeline: STT, TTS, barge-in with mic monitoring during playback,
+/// VAD for hands-free mode, and voice selection.
 @Observable
 @MainActor
 final class AudioManager: NSObject {
@@ -29,20 +29,20 @@ final class AudioManager: NSObject {
     var listeningMode: ListeningMode = .pushToTalk {
         didSet { UserDefaults.standard.set(listeningMode.rawValue, forKey: "listeningMode") }
     }
-    var audioLevel: Float = 0 // 0.0 to 1.0, for UI visualization
+    var audioLevel: Float = 0
 
     /// Selected TTS voice identifier (persisted)
     var selectedVoiceID: String? {
         didSet { UserDefaults.standard.set(selectedVoiceID, forKey: "selectedVoiceID") }
     }
 
-    /// Callback for when hands-free VAD detects end of speech
+    /// Callback when hands-free VAD detects end of speech
     var onHandsFreeUtteranceComplete: ((String) -> Void)?
 
-    /// Callback for auto barge-in (voice interruption while AI speaks)
-    var onBargeInTriggered: (() -> Void)?
+    /// Callback when auto barge-in fires (user speaks during TTS)
+    var onAutoBargeIn: (() -> Void)?
 
-    // MARK: - Private Properties
+    // MARK: - Private
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let synthesizer = AVSpeechSynthesizer()
@@ -51,16 +51,22 @@ final class AudioManager: NSObject {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var ttsDelegate: TTSDelegate?
 
-    // VAD properties
+    // Tap / engine state
+    private var hasTapInstalled = false
+    private var isEngineRunning = false
+
+    // VAD
     private var silenceTimer: Timer?
-    private let vadSilenceThreshold: TimeInterval = 1.5
-    private let vadPowerThreshold: Float = -35.0 // dB threshold for speech
+    private let vadSilenceThreshold: TimeInterval = 1.8
+    private let vadSpeechThreshold: Float = -35.0
 
-    // Barge-in monitoring
-    private var bargeInMonitorTimer: Timer?
-    private var hasTapInstalled: Bool = false
+    // Barge-in monitoring during TTS
+    private var bargeInEngine: AVAudioEngine?
+    private var bargeInTapInstalled = false
+    private var bargeInSpeechFrames: Int = 0
+    private let bargeInFramesNeeded: Int = 8 // ~0.4s of sustained speech
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     override init() {
         super.init()
@@ -68,8 +74,6 @@ final class AudioManager: NSObject {
             listeningMode = ListeningMode(rawValue: mode) ?? .pushToTalk
         }
         selectedVoiceID = UserDefaults.standard.string(forKey: "selectedVoiceID")
-
-        // Auto-select best voice if none selected
         if selectedVoiceID == nil {
             selectedVoiceID = Self.bestAvailableVoice()?.identifier
         }
@@ -77,25 +81,28 @@ final class AudioManager: NSObject {
         ttsDelegate = TTSDelegate { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
+                self.stopBargeInMonitor()
                 self.state = .idle
+                // Auto-restart listening in hands-free
                 if self.listeningMode == .handsFree {
-                    self.startListening()
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s gap
+                    if self.state == .idle {
+                        self.startListening()
+                    }
                 }
             }
         }
         synthesizer.delegate = ttsDelegate
     }
 
-    // MARK: - Voice Selection
+    // MARK: - Voice Helpers
 
-    /// Get all available TTS voices for current language
     static func availableVoices(for language: String = "en") -> [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.hasPrefix(language) }
             .sorted { $0.quality.rawValue > $1.quality.rawValue }
     }
 
-    /// Quality label for a voice
     static func qualityLabel(for voice: AVSpeechSynthesisVoice) -> String {
         switch voice.quality {
         case .premium: return "Premium"
@@ -104,12 +111,11 @@ final class AudioManager: NSObject {
         }
     }
 
-    /// Find the best quality voice available (premium > enhanced > default)
     static func bestAvailableVoice(for language: String = "en-US") -> AVSpeechSynthesisVoice? {
-        let voices = AVSpeechSynthesisVoice.speechVoices()
+        AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language == language }
             .sorted { $0.quality.rawValue > $1.quality.rawValue }
-        return voices.first
+            .first
     }
 
     // MARK: - Permissions
@@ -147,78 +153,129 @@ final class AudioManager: NSObject {
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
 
-    // MARK: - Tap Management (prevents crash)
+    // MARK: - Engine & Tap Safety
 
-    private func removeTapIfNeeded() {
+    private func safeStopEngine() {
         if hasTapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
             hasTapInstalled = false
         }
-    }
-
-    private func stopEngineIfRunning() {
         if audioEngine.isRunning {
             audioEngine.stop()
         }
-        removeTapIfNeeded()
+        isEngineRunning = false
     }
 
     // MARK: - Barge-In
 
-    /// Interrupt TTS immediately and start listening
+    /// Manual barge-in: stop TTS, clean up, start listening
     func bargeIn() {
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
-        }
+        guard state == .speaking else { return }
+
+        synthesizer.stopSpeaking(at: .immediate)
         stopBargeInMonitor()
         state = .idle
-        startListening()
-    }
 
-    /// Start monitoring mic for voice during TTS playback (auto barge-in)
-    private func startBargeInMonitor() {
-        stopBargeInMonitor()
-
-        // Use a timer to periodically check audio levels from mic
-        // We can't install a tap while TTS is using the audio engine,
-        // so we use a separate AVAudioEngine instance for monitoring
-        bargeInMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                // Just keep the timer alive — actual detection below
+        // Small delay to let audio session settle
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+            if self.state == .idle {
+                self.startListening()
             }
         }
     }
 
-    private func stopBargeInMonitor() {
-        bargeInMonitorTimer?.invalidate()
-        bargeInMonitorTimer = nil
+    // MARK: - Barge-In Monitor (mic during TTS)
+
+    /// Start a separate AVAudioEngine to monitor mic input during TTS
+    private func startBargeInMonitor() {
+        guard listeningMode == .handsFree else { return }
+        stopBargeInMonitor()
+
+        bargeInSpeechFrames = 0
+        let monitor = AVAudioEngine()
+        bargeInEngine = monitor
+
+        let inputNode = monitor.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+
+        guard format.sampleRate > 0 && format.channelCount > 0 else { return }
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
+
+            var sum: Float = 0
+            for i in 0..<frameLength {
+                sum += channelData[i] * channelData[i]
+            }
+            let rms = sqrt(sum / Float(frameLength))
+            let power = 20 * log10(max(rms, 0.000001))
+
+            Task { @MainActor in
+                guard let self = self, self.state == .speaking else { return }
+
+                if power > self.vadSpeechThreshold {
+                    self.bargeInSpeechFrames += 1
+                } else {
+                    self.bargeInSpeechFrames = max(0, self.bargeInSpeechFrames - 1)
+                }
+
+                // Sustained speech detected → auto barge-in
+                if self.bargeInSpeechFrames >= self.bargeInFramesNeeded {
+                    self.bargeInSpeechFrames = 0
+                    self.synthesizer.stopSpeaking(at: .immediate)
+                    self.stopBargeInMonitor()
+                    self.state = .idle
+                    self.onAutoBargeIn?()
+                }
+            }
+        }
+        bargeInTapInstalled = true
+
+        do {
+            monitor.prepare()
+            try monitor.start()
+        } catch {
+            stopBargeInMonitor()
+        }
     }
 
-    // MARK: - Speech-to-Text (STT)
+    private func stopBargeInMonitor() {
+        if bargeInTapInstalled, let engine = bargeInEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            bargeInTapInstalled = false
+        }
+        bargeInEngine?.stop()
+        bargeInEngine = nil
+        bargeInSpeechFrames = 0
+    }
+
+    // MARK: - STT
 
     func startListening() {
+        guard state == .idle || state == .processing else { return }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             recognizedText = "Speech recognition not available."
             return
         }
 
-        // Stop any ongoing TTS (barge-in)
+        // Stop TTS if somehow still running
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
         }
         stopBargeInMonitor()
 
-        // Clean up any existing audio engine state
-        stopEngineIfRunning()
-
-        // Cancel any existing recognition
+        // Full cleanup of main engine
         recognitionTask?.cancel()
         recognitionTask = nil
+        safeStopEngine()
 
         do {
             try configureAudioSession()
         } catch {
-            recognizedText = "Audio session error: \(error.localizedDescription)"
+            recognizedText = "Audio session error."
             return
         }
 
@@ -234,24 +291,30 @@ final class AudioManager: NSObject {
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
+        guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
+            state = .idle
+            recognizedText = "Mic format error."
+            return
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             request.append(buffer)
 
-            // Calculate audio power level for VAD and UI
             guard let channelData = buffer.floatChannelData?[0] else { return }
             let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
             var sum: Float = 0
             for i in 0..<frameLength {
                 sum += channelData[i] * channelData[i]
             }
-            let rms = sqrt(sum / Float(max(frameLength, 1)))
+            let rms = sqrt(sum / Float(frameLength))
             let avgPower = 20 * log10(max(rms, 0.000001))
 
             Task { @MainActor in
                 guard let self = self else { return }
                 self.audioLevel = max(0, min(1, (avgPower + 60) / 60))
 
-                if self.listeningMode == .handsFree && avgPower > self.vadPowerThreshold {
+                if self.listeningMode == .handsFree && avgPower > self.vadSpeechThreshold {
                     self.resetSilenceTimer()
                 }
             }
@@ -261,13 +324,14 @@ final class AudioManager: NSObject {
         do {
             audioEngine.prepare()
             try audioEngine.start()
+            isEngineRunning = true
         } catch {
-            recognizedText = "Audio engine error: \(error.localizedDescription)"
+            recognizedText = "Audio engine start error."
             state = .idle
+            safeStopEngine()
             return
         }
 
-        // Start silence timer for hands-free mode
         if listeningMode == .handsFree {
             resetSilenceTimer()
         }
@@ -275,16 +339,17 @@ final class AudioManager: NSObject {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self = self else { return }
+                guard self.state == .listening else { return } // Ignore stale callbacks
 
                 if let result = result {
                     self.recognizedText = result.bestTranscription.formattedString
-
                     if self.listeningMode == .handsFree {
                         self.resetSilenceTimer()
                     }
                 }
 
-                if error != nil || (result?.isFinal ?? false) {
+                if result?.isFinal == true || error != nil {
+                    // Only transition to processing if we're still listening
                     if self.state == .listening {
                         self.state = .processing
                     }
@@ -296,9 +361,9 @@ final class AudioManager: NSObject {
     func stopListening() {
         silenceTimer?.invalidate()
         silenceTimer = nil
-        stopEngineIfRunning()
         recognitionRequest?.endAudio()
         recognitionRequest = nil
+        safeStopEngine()
         audioLevel = 0
 
         if state == .listening {
@@ -313,16 +378,16 @@ final class AudioManager: NSObject {
         silenceTimer = Timer.scheduledTimer(withTimeInterval: vadSilenceThreshold, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
+                guard self.state == .listening else { return }
                 let text = self.recognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty && self.state == .listening {
-                    self.stopListening()
-                    self.onHandsFreeUtteranceComplete?(text)
-                }
+                guard !text.isEmpty else { return }
+                self.stopListening()
+                self.onHandsFreeUtteranceComplete?(text)
             }
         }
     }
 
-    // MARK: - Text-to-Speech (TTS)
+    // MARK: - TTS
 
     func speak(_ text: String) {
         guard !text.isEmpty else {
@@ -330,18 +395,24 @@ final class AudioManager: NSObject {
             return
         }
 
-        // Stop engine & remove tap before TTS
-        stopEngineIfRunning()
-
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
-        }
+        // Clean up STT engine before TTS
+        silenceTimer?.invalidate()
+        silenceTimer = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        safeStopEngine()
 
         do {
             try configureAudioSession()
         } catch {
             state = .idle
             return
+        }
+
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
         }
 
         state = .speaking
@@ -353,7 +424,6 @@ final class AudioManager: NSObject {
         utterance.preUtteranceDelay = 0.05
         utterance.postUtteranceDelay = 0.1
 
-        // Use selected voice or best available
         if let voiceID = selectedVoiceID,
            let voice = AVSpeechSynthesisVoice(identifier: voiceID) {
             utterance.voice = voice
@@ -362,6 +432,15 @@ final class AudioManager: NSObject {
         }
 
         synthesizer.speak(utterance)
+
+        // Start monitoring mic for auto barge-in (hands-free)
+        // Small delay so TTS audio output stabilizes (avoids false trigger)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            if self.state == .speaking {
+                self.startBargeInMonitor()
+            }
+        }
     }
 
     func stopSpeaking() {
@@ -378,8 +457,10 @@ final class AudioManager: NSObject {
         silenceTimer?.invalidate()
         silenceTimer = nil
         stopBargeInMonitor()
-        stopEngineIfRunning()
-        stopSpeaking()
+        safeStopEngine()
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
         recognitionTask?.cancel()
         recognitionTask = nil
     }

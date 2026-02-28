@@ -42,6 +42,13 @@ struct ChatView: View {
                     handleUserUtterance(text)
                 }
             }
+
+            // Set up auto barge-in (user speaks while AI is talking)
+            audio.onAutoBargeIn = {
+                Task { @MainActor in
+                    audio.startListening()
+                }
+            }
         }
     }
 
