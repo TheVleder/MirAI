@@ -360,14 +360,59 @@ struct SettingsView: View {
     // MARK: - Model Section
 
     private var modelSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        @Bindable var downloader = downloader
+
+        return VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Model", icon: "cpu")
 
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 infoRow("Loaded", value: llm.loadedModelName.isEmpty ? "None" : llm.loadedModelName)
                 infoRow("Status", value: stateLabel)
                 infoRow("Storage", value: modelSizeString)
 
+                // Model ID input
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Model ID")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.4))
+
+                    TextField("mlx-community/model-name", text: $downloader.modelID)
+                        .textFieldStyle(.plain)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.top, 4)
+
+                // Download / Switch model
+                Button {
+                    Task {
+                        await downloader.downloadModel()
+                        if downloader.isModelReady, let id = downloader.downloadedModelID {
+                            await llm.loadModel(modelID: id)
+                        }
+                        calculateModelSize()
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text(downloader.downloadedModelID != nil ? "Switch Model" : "Download Model")
+                    }
+                    .font(.system(.subheadline, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        LinearGradient(colors: [.cyan.opacity(0.7), .blue.opacity(0.5)], startPoint: .leading, endPoint: .trailing)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                // Delete
                 if downloader.downloadedModelID != nil {
                     Button {
                         showDeleteModelConfirm = true
@@ -383,7 +428,6 @@ struct SettingsView: View {
                         .background(Color.red.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
-                    .padding(.top, 4)
                 }
             }
             .padding(16)
